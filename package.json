@@ -1,0 +1,13 @@
+{
+  "name": "project-flow",
+  "version": "1.0.0",
+  "description": "제작 스케줄 관리 시스템",
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "echo 'Static site - no build needed'"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.24.0",
+    "googleapis": "^140.0.0"
+  }
+}
