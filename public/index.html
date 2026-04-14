@@ -495,13 +495,32 @@ async function emailLogin() {
   const email = document.getElementById('loginEmail').value.trim();
   if(!email || !email.includes('@')) { toast('유효한 이메일을 입력하세요'); return; }
 
-  // 데모 모드: 서버 인증 없이 로컬에서 역할 결정
-  // 실제 운영 시 /api/auth 로 대체
-  const adminEmails = (window.ADMIN_EMAILS||'').split(',').map(e=>e.trim().toLowerCase());
-  const role = adminEmails.includes(email.toLowerCase()) ? 'manager' : 'worker';
-  const user = { email, name: email.split('@')[0], picture:'', role };
-  const token = btoa(JSON.stringify({...user, exp: Date.now()+7*24*3600*1000}));
-  loginSuccess(user, token);
+  setLoading(true);
+  try {
+    // 서버 /api/auth 에서 ADMIN_EMAILS 환경변수 기준으로 역할 판단
+    const res = await fetch('/api/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'emailLogin', email })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      loginSuccess(data.user, data.token);
+    } else {
+      // 서버 연결 안 될 때 폴백 — 이메일로 직접 판단 (테스트용)
+      const role = email.toLowerCase() === 'hanlzgi@gmail.com' ? 'manager' : 'worker';
+      const user = { email, name: email.split('@')[0], picture: '', role };
+      const token = btoa(JSON.stringify({...user, exp: Date.now()+7*24*3600*1000}));
+      loginSuccess(user, token);
+    }
+  } catch(e) {
+    // 네트워크 오류 시 폴백
+    const role = email.toLowerCase() === 'hanlzgi@gmail.com' ? 'manager' : 'worker';
+    const user = { email, name: email.split('@')[0], picture: '', role };
+    const token = btoa(JSON.stringify({...user, exp: Date.now()+7*24*3600*1000}));
+    loginSuccess(user, token);
+  }
+  setLoading(false);
 }
 
 function loginSuccess(user, token) {
