@@ -4,6 +4,18 @@
 export default async function handler(req, res) {
   const { action, code, credential } = req.body || req.query || {};
 
+  // ── 0. 이메일 로그인 (비밀번호 없는 데모 방식) ─────────────
+  if (action === 'emailLogin') {
+    const email = req.body?.email || '';
+    if (!email || !email.includes('@')) {
+      return res.status(400).json({ error: '유효한 이메일 필요' });
+    }
+    const role = getRole(email);
+    const user = { email, name: email.split('@')[0], picture: '', role };
+    const token = makeSessionToken(user, role);
+    return res.status(200).json({ ok: true, user, token });
+  }
+
   // ── 1. Google OAuth URL 생성 ─────────────────────────────
   if (action === 'getUrl') {
     const clientId = process.env.GOOGLE_CLIENT_ID;
