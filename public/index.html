@@ -317,6 +317,55 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
   </div>
 </div>
 
+<!-- 서브태스크(세부공정) 편집 모달 -->
+<div class="modal-overlay" id="subtaskModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('subtaskModal')">×</button>
+    <h3 id="stTitle">세부공정 편집</h3>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <div class="form-group">
+        <label class="form-label">세부공정명 *</label>
+        <input class="form-input" id="st-name" placeholder="예: 콘티 작성, 원화 제작, 배경 채색">
+      </div>
+      <div class="form-group">
+        <label class="form-label">담당자 (목록에서 선택)</label>
+        <select class="form-select" id="st-workerSel" onchange="stWorkerSelChange(this)">
+          <option value="">직접 입력</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">담당자 (직접 입력)</label>
+        <input class="form-input" id="st-worker" placeholder="이름 입력">
+      </div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">시작일</label>
+          <input class="form-input" type="date" id="st-start">
+        </div>
+        <div class="form-group">
+          <label class="form-label">마감일</label>
+          <input class="form-input" type="date" id="st-end">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">상태</label>
+        <select class="form-select" id="st-status">
+          <option>시작 전</option><option>진행 중</option><option>검토 요청</option><option>완료</option><option>보류</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">메모</label>
+        <textarea class="form-textarea" id="st-memo" rows="2" placeholder="지시사항, 참고사항"></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" style="background:var(--alt);color:var(--accent);margin-right:auto;" onclick="deleteSubtask()">🗑 삭제</button>
+      <button class="btn btn-secondary" onclick="closeModal('subtaskModal')">취소</button>
+      <button class="btn btn-primary" onclick="saveSubtask()">저장</button>
+    </div>
+  </div>
+</div>
+
 <!-- 공정 상세/편집 모달 -->
 <div class="modal-overlay" id="taskDetailModal">
   <div class="modal" style="width:600px;">
@@ -687,44 +736,173 @@ function ganttHTML(){
       </select>
     </div>
     <div class="empty-state" style="background:var(--paper);border:1px solid var(--rule);border-radius:10px;padding:40px;">
-      <div class="ei">🗂</div>
-      <p>이 프로젝트에 등록된 작업이 없습니다<br><small style="color:var(--ink3)">프로젝트 편집에서 작업 목록을 추가하거나, 작업자에게 일정 등록을 요청하세요</small></p>
-      <div style="display:flex;gap:8px;justify-content:center;margin-top:16px;">
-        <button class="btn btn-primary" onclick="openEditProjectModal('${project.id}')">✏️ 작업 추가</button>
-      </div>
-    </div>
-  </div>`;
+      <div class="ei">🗂</div><p>등록된 작업이 없습니다</p>
+      <br><button class="btn btn-primary" onclick="openEditProjectModal('${project.id}')">✏️ 작업 추가</button>
+    </div></div>`;
 
-  const pS=new Date(project.start),pE=new Date(project.end),WW=54;
-  const wks=[];let cur=new Date(pS);cur.setDate(cur.getDate()-cur.getDay());while(cur<=pE){wks.push(new Date(cur));cur.setDate(cur.getDate()+7);}
-  const tw=wks.length*WW;const mos={};wks.forEach(w=>{const m=`${w.getFullYear()}.${String(w.getMonth()+1).padStart(2,'0')}`;if(!mos[m])mos[m]={c:0};mos[m].c++;});
-  const today=new Date();today.setHours(0,0,0,0);const tpx=(today-pS)/86400000/7*WW;const showT=today>=pS&&today<=pE;
-  const cm={};pTasks.forEach(t=>{if(!cm[t.cat])cm[t.cat]=[];cm[t.cat].push(t);});
-  let lH='',rH='';
+  // ── 위클리 달력 생성 (월~일, 주 단위) ──────────────────
+  const KO_HOLIDAYS = getKoreanHolidays(
+    new Date(project.start).getFullYear(),
+    new Date(project.end).getFullYear()
+  );
+  const DAY_W = 32; // 하루 픽셀 너비
+  const WEEK_W = DAY_W * 7; // 주 픽셀 너비
+
+  const pS = new Date(project.start); pS.setHours(0,0,0,0);
+  const pE = new Date(project.end);   pE.setHours(23,59,59,0);
+
+  // 시작 주의 월요일부터
+  const gridStart = new Date(pS);
+  const dow = gridStart.getDay(); // 0=일
+  gridStart.setDate(gridStart.getDate() - (dow===0?6:dow-1)); // 월요일로
+
+  // 주 배열 생성
+  const weeks = [];
+  let cur = new Date(gridStart);
+  while(cur <= pE) { weeks.push(new Date(cur)); cur.setDate(cur.getDate()+7); }
+
+  const totalDays = weeks.length * 7;
+  const totalW    = totalDays * DAY_W;
+
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  // ── 월 헤더 (위 행) ──
+  const monthSpans = [];
+  weeks.forEach(wStart=>{
+    for(let d=0;d<7;d++){
+      const day=new Date(wStart); day.setDate(wStart.getDate()+d);
+      const mk=`${day.getFullYear()}.${String(day.getMonth()+1).padStart(2,'0')}`;
+      if(!monthSpans.length||monthSpans[monthSpans.length-1].key!==mk)
+        monthSpans.push({key:mk,count:0});
+      monthSpans[monthSpans.length-1].count++;
+    }
+  });
+
+  // ── 날짜 헤더 (아래 행) — 월/화/수/목/금/토/일 각 셀 ──
+  const dayNames=['월','화','수','목','금','토','일'];
+  const dayHdrCells = weeks.flatMap((wStart,wi)=>
+    [0,1,2,3,4,5,6].map(d=>{
+      const day=new Date(wStart); day.setDate(wStart.getDate()+d);
+      const ds=dateStr(day);
+      const isHol=KO_HOLIDAYS.has(ds);
+      const isSun=d===6; const isSat=d===5;
+      const isToday=day.getTime()===today.getTime();
+      const dateNum=day.getDate();
+      const color=isToday?'var(--accent)':isHol||isSun?'#e03535':isSat?'#1e5fa8':'var(--ink2)';
+      const bg=isToday?'var(--alt)':'';
+      return `<div style="width:${DAY_W}px;flex-shrink:0;text-align:center;font-size:9.5px;font-family:'DM Mono',monospace;color:${color};${bg?`background:${bg};`:''}border-right:1px solid ${d===4?'rgba(0,0,0,.12)':'var(--rule)'};padding:2px 0;line-height:1.3;">
+        <div style="font-size:9px;opacity:.7">${dayNames[d]}</div>
+        <div style="font-weight:${isToday?700:400}">${dateNum}</div>
+        ${isHol?`<div style="font-size:7px;color:#e03535">●</div>`:''}
+      </div>`;
+    })
+  ).join('');
+
+  // ── 세로 격자선 (오늘, 주 구분) ──
+  const gridLines = weeks.flatMap((w,wi)=>
+    [0,1,2,3,4,5,6].map((d,di)=>{
+      const day=new Date(w); day.setDate(w.getDate()+d);
+      const x=(wi*7+d)*DAY_W;
+      const ds=dateStr(day);
+      const isHol=KO_HOLIDAYS.has(ds);
+      const isSun=d===6; const isSat=d===5;
+      const isToday=day.getTime()===today.getTime();
+      let bg='transparent';
+      if(isToday) bg='rgba(200,82,26,.06)';
+      else if(isHol||isSun) bg='rgba(220,53,53,.04)';
+      else if(isSat) bg='rgba(30,95,168,.03)';
+      return `<div style="position:absolute;left:${x}px;top:0;bottom:0;width:${DAY_W}px;${bg?`background:${bg};`:''}border-right:1px solid ${d===4?'rgba(0,0,0,.1)':'var(--rule)'};z-index:0;pointer-events:none;"></div>`;
+    })
+  ).join('');
+
+  // 오늘 라인
+  const todayX = (today-gridStart)/86400000*DAY_W;
+  const showToday = today>=gridStart && today<=pE;
+
+  // ── 공정별 행 생성 (카테고리 그룹 + 서브태스크 토글) ──
+  const cm={};
+  pTasks.forEach(t=>{ if(!cm[t.cat])cm[t.cat]=[]; cm[t.cat].push(t); });
+
+  let lH='', rH='';
+
   Object.entries(cm).forEach(([cat,tasks])=>{
     const c=cc(cat);
-    lH+=`<div class="g-cat-row" style="background:${c.bg}20">${cat}</div>`;
-    rH+=`<div class="t-cat" style="width:${tw}px;background:${c.bg}20"></div>`;
+    // 카테고리 헤더 행
+    lH+=`<div class="g-cat-row" style="background:${c.bg}30;border-left:3px solid ${c.fg};">${cat} <span style="font-size:10px;color:var(--ink3);font-weight:400;">(${tasks.length})</span></div>`;
+    rH+=`<div style="height:28px;background:${c.bg}20;border-bottom:1px solid var(--rule);position:relative;">${gridLines}</div>`;
+
     tasks.forEach(t=>{
-      const s=new Date(t.start||project.start),e=new Date(t.end||project.end);
-      const lx=Math.max(0,(s-pS)/86400000/7*WW),wx=Math.max(6,(e-s+86400000)/86400000/7*WW);
-      const hasMemo=t.memo?'🗨':'';
-      lH+=`<div class="g-row" onclick="openTaskDetail('${t.key}')" style="cursor:pointer;">
-        <span class="g-name">${t.task}</span>
-        <span class="g-worker">${t.worker||'-'}</span>
-        <span class="status-badge ${sc(t.status)}" style="font-size:10px">${t.status}</span>
-        ${hasMemo?`<span style="font-size:11px;color:var(--purple)">${hasMemo}</span>`:''}
+      const tS=new Date(t.start||project.start); tS.setHours(0,0,0,0);
+      const tE=new Date(t.end||project.end);     tE.setHours(23,59,59,0);
+      const barX = Math.max(0,(tS-gridStart)/86400000*DAY_W);
+      const barW = Math.max(DAY_W, (tE-tS+86400000)/86400000*DAY_W);
+      const subs = t.subtasks||[];
+      const hasExp = subs.length>0;
+      const expanded = ganttExpanded.has(t.key);
+      const pct = subs.length
+        ? Math.round(subs.filter(s=>s.status==='완료').length/subs.length*100)
+        : (t.status==='완료'?100:t.status==='진행 중'?50:0);
+
+      // 왼쪽: 공정 행
+      lH+=`<div class="g-row" style="cursor:pointer;border-left:3px solid ${expanded?c.fg:'transparent'};background:${expanded?c.bg+'30':''};">
+        <button onclick="event.stopPropagation();toggleGanttRow('${t.key}')"
+          style="width:16px;height:16px;border:1px solid ${hasExp?c.fg:'var(--rule)'};border-radius:3px;background:${hasExp?c.bg:'transparent'};color:${c.fg};font-size:10px;line-height:1;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:0;">
+          ${hasExp?(expanded?'▾':'▸'):'+'}
+        </button>
+        <span class="g-name" onclick="openTaskDetail('${t.key}')">${t.task}</span>
+        <span class="g-worker" style="font-size:10.5px">${t.worker||'-'}</span>
+        <span class="status-badge ${sc(t.status)}" style="font-size:9.5px;padding:1px 6px;">${t.status}</span>
       </div>`;
-      rH+=`<div class="t-row" style="width:${tw}px">${wks.map((_,i)=>`<div class="wgl" style="left:${i*WW}px"></div>`).join('')}<div class="g-bar" onclick="openTaskDetail('${t.key}')" style="left:${lx}px;width:${wx}px;background:${c.fg}" title="${t.task} · ${t.worker} · ${t.status}">${wx>50?t.task:''}</div></div>`;
+
+      // 오른쪽: 바 행
+      rH+=`<div class="t-row" style="position:relative;height:34px;">
+        ${gridLines}
+        ${showToday?`<div style="position:absolute;left:${todayX}px;top:0;bottom:0;width:2px;background:var(--accent);opacity:.6;z-index:4;pointer-events:none;"></div>`:''}
+        <div class="g-bar" onclick="openTaskDetail('${t.key}')"
+          style="left:${barX}px;width:${barW}px;background:${c.fg};z-index:3;">
+          ${barW>60?`<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.task}</span>`:''}
+          ${pct>0&&barW>40?`<span style="margin-left:auto;opacity:.85;font-size:9px;">${pct}%</span>`:''}
+        </div>
+      </div>`;
+
+      // 서브태스크 확장 행
+      if(expanded && subs.length){
+        subs.forEach((s,si)=>{
+          const sS=new Date(s.start||t.start||project.start); sS.setHours(0,0,0,0);
+          const sE=new Date(s.end||t.end||project.end);       sE.setHours(23,59,59,0);
+          const sbX=Math.max(0,(sS-gridStart)/86400000*DAY_W);
+          const sbW=Math.max(DAY_W,(sE-sS+86400000)/86400000*DAY_W);
+          lH+=`<div class="g-row" style="height:28px;background:${c.bg}18;padding-left:28px;cursor:pointer;" onclick="openSubtaskDetail('${t.key}',${si})">
+            <span style="color:${c.fg};font-size:11px;margin-right:4px;">└</span>
+            <span style="font-size:12px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${s.name||'세부공정 '+(si+1)}</span>
+            <span style="font-size:10px;color:var(--ink3);margin-right:4px;">${s.worker||'-'}</span>
+            <span class="status-badge ${sc(s.status||'시작 전')}" style="font-size:9px;padding:1px 5px;">${s.status||'시작 전'}</span>
+          </div>`;
+          rH+=`<div style="height:28px;position:relative;background:${c.bg}10;border-bottom:1px solid rgba(226,223,216,.3);">
+            ${gridLines}
+            <div style="position:absolute;left:${sbX}px;width:${sbW}px;height:12px;top:50%;transform:translateY(-50%);background:${c.fg};opacity:.65;border-radius:2px;z-index:3;cursor:pointer;" onclick="openSubtaskDetail('${t.key}',${si})">
+            </div>
+          </div>`;
+        });
+        // 서브태스크 추가 행
+        lH+=`<div style="height:26px;background:${c.bg}10;border-bottom:1px solid var(--rule);display:flex;align-items:center;padding-left:28px;">
+          <button onclick="addSubtaskInline('${t.key}')"
+            style="padding:2px 10px;font-size:11px;border:1px dashed ${c.fg};border-radius:4px;background:transparent;color:${c.fg};cursor:pointer;font-family:inherit;">
+            ＋ 세부공정 추가
+          </button>
+        </div>`;
+        rH+=`<div style="height:26px;background:${c.bg}10;border-bottom:1px solid var(--rule);position:relative;">${gridLines}</div>`;
+      }
     });
   });
-  return `<div class="page-wrap" style="padding-bottom:0;">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+
+  return `<div class="page-wrap" style="padding-bottom:0;overflow:hidden;display:flex;flex-direction:column;height:100%;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:10px;flex-shrink:0;">
       <div>
         <div style="font-size:16px;font-weight:600">${project.name}</div>
-        <div style="font-size:12px;color:var(--ink2)">${project.pm||'PM 미지정'} · ${project.start} ~ ${project.end} · 작업 ${pTasks.length}개</div>
+        <div style="font-size:12px;color:var(--ink2)">${project.pm||'PM 미지정'} · ${project.start} ~ ${project.end} · ${pTasks.length}개 공정</div>
       </div>
-      <div style="display:flex;gap:8px;align-items:center;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <select style="padding:5px 10px;border:1px solid var(--rule);border-radius:var(--radius);font-size:12.5px;font-family:inherit;outline:none;background:var(--paper);" onchange="selectedPid=this.value;renderMgr('gantt')">
           ${projects.map(p=>`<option value="${p.id}" ${p.id===project.id?'selected':''}>${p.name}</option>`).join('')}
         </select>
@@ -732,24 +910,46 @@ function ganttHTML(){
         <button class="btn btn-sm" style="background:var(--purple);color:white;" onclick="openGanttComment('${project.id}')">💬 코멘트</button>
       </div>
     </div>
-    <div class="gantt-outer"><div class="gantt-container"><div class="gantt-table">
-      <div class="gantt-left"><div class="g-col-hd">작업 (클릭: 상세/편집)</div>${lH}</div>
-      <div class="gantt-right">
-        <div class="tl-hd"><div style="display:flex;flex-direction:column;">
-          <div style="display:flex;">${Object.entries(mos).map(([m,v])=>`<div class="mo-lbl" style="width:${v.c*WW}px">${m}</div>`).join('')}</div>
-          <div style="display:flex;">${wks.map(w=>`<div class="wk-lbl" style="width:${WW}px">${w.getDate()}</div>`).join('')}</div>
-        </div></div>
-        <div style="position:relative;">${showT?`<div class="today-line" style="left:${tpx}px"></div>`:''}${rH}</div>
+
+    <!-- 공정표 본체 -->
+    <div style="flex:1;overflow:auto;border:1px solid var(--rule);border-radius:10px;background:var(--paper);">
+      <div style="display:flex;min-width:900px;">
+
+        <!-- 왼쪽 고정 열 -->
+        <div style="flex-shrink:0;width:280px;border-right:2px solid var(--rule);position:sticky;left:0;z-index:20;background:var(--paper);">
+          <!-- 헤더 -->
+          <div style="height:52px;background:var(--bg);border-bottom:2px solid var(--rule);display:flex;align-items:center;padding:0 12px;font-size:11px;font-weight:600;color:var(--ink2);letter-spacing:.04em;text-transform:uppercase;">
+            공정 / 세부공정
+          </div>
+          ${lH}
+        </div>
+
+        <!-- 오른쪽 스크롤 영역 -->
+        <div style="flex:1;overflow-x:auto;">
+          <!-- 날짜 헤더 (2행) -->
+          <div style="position:sticky;top:0;z-index:10;background:var(--bg);border-bottom:2px solid var(--rule);">
+            <!-- 월 행 -->
+            <div style="display:flex;height:26px;border-bottom:1px solid var(--rule);">
+              ${monthSpans.map(ms=>`<div style="width:${ms.count*DAY_W}px;flex-shrink:0;font-size:11px;font-weight:700;color:var(--ink);padding:0 8px;display:flex;align-items:center;border-right:2px solid var(--rule);overflow:hidden;white-space:nowrap;">${ms.key}</div>`).join('')}
+            </div>
+            <!-- 날짜/요일 행 -->
+            <div style="display:flex;height:26px;">${dayHdrCells}</div>
+          </div>
+          <!-- 바 영역 -->
+          <div style="position:relative;">${rH}</div>
+        </div>
+
       </div>
-    </div></div></div>
-    <!-- 프로젝트 코멘트 섹션 -->
-    <div id="ganttCommentPanel" style="display:none;padding:16px 0 24px;">
+    </div>
+
+    <!-- 코멘트 패널 -->
+    <div id="ganttCommentPanel" style="display:none;padding:12px 0 16px;flex-shrink:0;">
       <div class="card">
         <div class="card-hd">💬 관리자 코멘트 — ${project.name}</div>
         <div class="card-body">
-          <div id="commentList" style="max-height:200px;overflow-y:auto;margin-bottom:12px;"></div>
+          <div id="commentList" style="max-height:180px;overflow-y:auto;margin-bottom:10px;"></div>
           <div style="display:flex;gap:8px;">
-            <input id="commentInput" class="form-input" style="flex:1;" placeholder="작업 조정 사항, 메모, 지시사항 등...">
+            <input id="commentInput" class="form-input" style="flex:1;" placeholder="작업 조정 사항, 지시사항...">
             <button class="btn btn-primary btn-sm" onclick="addGanttComment('${project.id}')">등록</button>
           </div>
         </div>
@@ -1397,6 +1597,127 @@ function openAddTaskToProject(pid){
   const p=projects.find(x=>x.id===pid);
   if(!p){toast('프로젝트를 찾을 수 없습니다');return;}
   openEditProjectModal(pid);
+}
+
+// ══ 공정표 상태 ══
+const ganttExpanded = new Set(); // 펼쳐진 공정 key Set
+
+function toggleGanttRow(key){
+  if(ganttExpanded.has(key)) ganttExpanded.delete(key);
+  else ganttExpanded.add(key);
+  renderMgr('gantt');
+}
+
+// ── 서브태스크 인라인 추가 (행 펼침 후 바로 빈 행) ──
+function addSubtaskInline(key){
+  const t=allTasks.find(t=>t.key===key); if(!t)return;
+  if(!t.subtasks)t.subtasks=[];
+  t.subtasks.push({name:'',worker:t.worker||'',start:t.start||'',end:t.end||'',status:'시작 전'});
+  ganttExpanded.add(key);
+  // 서브태스크 편집 모달 바로 열기
+  openSubtaskDetail(key, t.subtasks.length-1);
+}
+
+// ── 서브태스크 팝업 편집 ──
+let _stKey='', _stIdx=-1;
+function openSubtaskDetail(key, idx){
+  _stKey=key; _stIdx=idx;
+  const t=allTasks.find(t=>t.key===key); if(!t)return;
+  const s=t.subtasks?.[idx]||{};
+  document.getElementById('stTitle').textContent = t.task+' — 세부공정';
+  document.getElementById('st-name').value   = s.name||'';
+  document.getElementById('st-worker').value = s.worker||'';
+  document.getElementById('st-start').value  = s.start||t.start||'';
+  document.getElementById('st-end').value    = s.end||t.end||'';
+  document.getElementById('st-status').value = s.status||'시작 전';
+  document.getElementById('st-memo').value   = s.memo||'';
+  // 작업자 목록
+  const wm=getWorkerMaster();
+  const existing=[...new Set(allTasks.map(x=>x.worker).filter(Boolean))];
+  const all=[...new Set([...wm.map(w=>w.name),...existing])];
+  document.getElementById('st-workerSel').innerHTML =
+    `<option value="">직접 입력</option>`+all.map(w=>`<option value="${w}" ${w===s.worker?'selected':''}>${w}</option>`).join('');
+  openModal('subtaskModal');
+}
+
+function stWorkerSelChange(sel){
+  if(sel.value) document.getElementById('st-worker').value=sel.value;
+}
+
+function saveSubtask(){
+  const t=allTasks.find(t=>t.key===_stKey); if(!t)return;
+  if(!t.subtasks)t.subtasks=[];
+  const s = {
+    name:   document.getElementById('st-name').value.trim()||'세부공정',
+    worker: document.getElementById('st-worker').value.trim(),
+    start:  document.getElementById('st-start').value,
+    end:    document.getElementById('st-end').value,
+    status: document.getElementById('st-status').value,
+    memo:   document.getElementById('st-memo').value.trim(),
+  };
+  if(_stIdx>=0 && _stIdx<t.subtasks.length) t.subtasks[_stIdx]=s;
+  else t.subtasks.push(s);
+
+  // 로컬 저장
+  const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');
+  const proj=ps.find(p=>p.id===t.projectId);
+  if(proj&&proj.tasks){
+    const pt=proj.tasks.find(pt=>pt.key===t.key);
+    if(pt) pt.subtasks=t.subtasks;
+    localStorage.setItem('pf_projects',JSON.stringify(ps));
+  }
+  closeModal('subtaskModal');
+  toast('✓ 세부공정 저장됨');
+  ganttExpanded.add(_stKey);
+  renderMgr('gantt');
+}
+
+function deleteSubtask(){
+  const t=allTasks.find(t=>t.key===_stKey); if(!t||!t.subtasks)return;
+  if(!confirm('이 세부공정을 삭제하시겠습니까?'))return;
+  t.subtasks.splice(_stIdx,1);
+  const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');
+  const proj=ps.find(p=>p.id===t.projectId);
+  if(proj&&proj.tasks){
+    const pt=proj.tasks.find(pt=>pt.key===t.key);
+    if(pt) pt.subtasks=t.subtasks;
+    localStorage.setItem('pf_projects',JSON.stringify(ps));
+  }
+  closeModal('subtaskModal');
+  toast('삭제됨');
+  renderMgr('gantt');
+}
+
+// ── 한국 공휴일 ──
+function getKoreanHolidays(startYear, endYear){
+  const holidays = new Set();
+  for(let y=startYear; y<=endYear; y++){
+    // 고정 공휴일
+    const fixed=[
+      `${y}-01-01`, // 신정
+      `${y}-03-01`, // 삼일절
+      `${y}-05-05`, // 어린이날
+      `${y}-06-06`, // 현충일
+      `${y}-08-15`, // 광복절
+      `${y}-10-03`, // 개천절
+      `${y}-10-09`, // 한글날
+      `${y}-12-25`, // 성탄절
+    ];
+    fixed.forEach(d=>holidays.add(d));
+    // 음력 공휴일 (근사값 — 실제 서비스는 공공API 사용 권장)
+    // 설날 전후 3일, 추석 전후 3일은 연도별로 다르므로 주요 연도만 하드코딩
+    const lunar={
+      2025:[`2025-01-28`,`2025-01-29`,`2025-01-30`,`2025-05-05`,`2025-10-05`,`2025-10-06`,`2025-10-07`],
+      2026:[`2026-02-16`,`2026-02-17`,`2026-02-18`,`2026-05-25`,`2026-09-24`,`2026-09-25`,`2026-09-26`],
+      2027:[`2027-02-06`,`2027-02-07`,`2027-02-08`,`2027-05-14`,`2027-10-14`,`2027-10-15`,`2027-10-16`],
+    };
+    if(lunar[y]) lunar[y].forEach(d=>holidays.add(d));
+  }
+  return holidays;
+}
+
+function dateStr(d){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
 // ══ 공정표 코멘트 ══
