@@ -309,6 +309,14 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
         </table>
       </div>
     </div>
+    <!-- 중요일정 마커 -->
+    <div style="margin-top:10px;">
+      <div style="font-size:12px;font-weight:600;color:var(--ink2);margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;">
+        <span>🔖 중요일정 (보고회·납품일·마감 등)</span>
+        <button class="btn btn-sm btn-secondary" onclick="addMarkerRow()" style="font-size:11px;">＋ 추가</button>
+      </div>
+      <div id="markerBody" style="display:flex;flex-direction:column;gap:4px;"></div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeModal('newProjectModal')">취소</button>
       <button class="btn btn-primary" onclick="saveNewProject()">💾 저장</button>
@@ -713,6 +721,7 @@ function getProjectTasks(pid){
 }
 let aiChatHist=[]; // AI 대화 이력
 const PC=['#c8521a','#1e5fa8','#2a7a4b','#7c4ba0','#c89a1a','#a0531e','#1e6878'];
+const MARKER_COLORS={'보고회':'#7c4ba0','납품일':'#c8521a','검수':'#1e5fa8','마감':'#c8521a','킥오프':'#2a7a4b','기타':'#555'};
 const CC={'기획':{bg:'#e3ecf7',fg:'#1e5fa8'},'영상':{bg:'#f5e8e0',fg:'#c8521a'},'디자인':{bg:'#e2f2e9',fg:'#2a7a4b'},'반응형':{bg:'#f0e8f8',fg:'#7c4ba0'},'홍보':{bg:'#fdf4d8',fg:'#c89a1a'},'애니':{bg:'#fde8d8',fg:'#a0531e'},'관리':{bg:'#e8ede8',fg:'#5a7a5a'},'편집':{bg:'#e0eff5',fg:'#1e6878'},'default':{bg:'#ebebeb',fg:'#6b6760'}};
 function cc(n=''){for(const[k,v]of Object.entries(CC))if(n.includes(k))return v;return CC.default;}
 function sc(s){return{'시작 전':'s-todo','진행 중':'s-wip','완료':'s-done','보류':'s-hold','검토 요청':'s-review','수정 중':'s-wip'}[s]||'s-todo';}
@@ -1235,7 +1244,19 @@ function refreshWorkerView(){
 
 function dashHTML(){
   const total=allTasks.length,done=allTasks.filter(t=>t.status==='완료').length,wip=allTasks.filter(t=>t.status==='진행 중').length,active=projects.filter(p=>new Date(p.end)>=new Date()).length;
-  const wm={};allTasks.forEach(t=>{if(!wm[t.worker])wm[t.worker]={total:0,done:0,review:0};wm[t.worker].total++;if(t.status==='완료')wm[t.worker].done++;if(t.status==='검토 요청')wm[t.worker].review++;});
+  // 담당자별 현황 — 메인공정 + 세부공정 작업자 모두 집계
+  const wm={};
+  const addToWm=(name,status)=>{
+    if(!name)return;
+    if(!wm[name])wm[name]={total:0,done:0,review:0};
+    wm[name].total++;
+    if(status==='완료')wm[name].done++;
+    if(status==='검토 요청')wm[name].review++;
+  };
+  allTasks.forEach(t=>{
+    addToWm(t.worker,t.status);
+    (t.subtasks||[]).forEach(s=>addToWm(s.worker,s.status||t.status));
+  });
   const rev=allTasks.filter(t=>t.status==='검토 요청');
   return `<div class="page-wrap">
     <div class="page-hd"><h1>대시보드</h1><p>전체 프로젝트 현황 · <span id="syncBadge2" class="${isSynced()?'sheets-badge':'local-badge'}">${isSynced()?'● Sheets 연동':'● 로컬 저장'}</span></p></div>
@@ -1329,10 +1350,10 @@ function ganttHTML(){
       const dateNum=day.getDate();
       const color=isToday?'var(--accent)':isHol||isSun?'#e03535':isSat?'#1e5fa8':'var(--ink2)';
       const bg=isToday?'var(--alt)':'';
-      return `<div style="width:${DAY_W}px;flex-shrink:0;text-align:center;font-size:9.5px;font-family:'DM Mono',monospace;color:${color};${bg?`background:${bg};`:''}border-right:1px solid ${d===4?'rgba(0,0,0,.12)':'var(--rule)'};padding:2px 0;line-height:1.3;">
+      return `<div style="width:${DAY_W}px;flex-shrink:0;text-align:center;font-size:9.5px;font-family:'DM Mono',monospace;color:${color};${bg?`background:${bg};`:''}${isToday?'border-bottom:2px solid var(--accent);':''}border-right:1px solid ${d===4?'rgba(0,0,0,.12)':'var(--rule)'};padding:2px 0;line-height:1.3;">
         <div style="font-size:9px;opacity:.7">${dayNames[d]}</div>
         <div style="font-weight:${isToday?700:400}">${dateNum}</div>
-        ${isHol?`<div style="font-size:7px;color:#e03535">●</div>`:''}
+        ${isToday?`<div style="font-size:7px;color:var(--accent);font-weight:700;letter-spacing:-.02em;">TODAY</div>`:(isHol?`<div style="font-size:7px;color:#e03535">●</div>`:'')}
       </div>`;
     })
   ).join('');
@@ -1501,7 +1522,20 @@ function ganttHTML(){
             <div style="display:flex;height:26px;">${dayHdrCells}</div>
           </div>
           <!-- 바 영역 -->
-          <div style="position:relative;">${rH}</div>
+          <div style="position:relative;">
+            ${showToday?`<div style="position:absolute;left:${todayX+DAY_W/2-1}px;top:0;bottom:0;width:2px;background:var(--accent);opacity:.7;z-index:10;pointer-events:none;"></div>
+              <div style="position:absolute;left:${todayX}px;top:0;bottom:0;width:${DAY_W}px;background:rgba(200,82,26,.06);z-index:0;pointer-events:none;"></div>`:''}
+            ${/* 중요일정 마커 오버레이 */ (project.markers||[]).filter(m=>m.date&&m.label).map(m=>{
+              const mD=new Date(m.date);mD.setHours(0,0,0,0);
+              const mX=Math.round((mD-gridStart)/86400000)*DAY_W+DAY_W/2;
+              const mColor=MARKER_COLORS[m.type]||'#555';
+              return `<div style="position:absolute;left:${mX}px;top:0;bottom:0;z-index:12;pointer-events:none;">
+                <div style="position:absolute;top:0;bottom:0;left:0;width:1.5px;background:${mColor};opacity:.7;"></div>
+                <div style="position:absolute;top:2px;left:2px;background:${mColor};color:white;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 3px rgba(0,0,0,.2);">${m.label}</div>
+              </div>`;
+            }).join('')}
+            ${rH}
+          </div>
         </div>
 
       </div>
@@ -1771,16 +1805,26 @@ function workersHTML(){
                   : `<span style="color:var(--ink3);font-size:12.5px;">← 인력 풀에서 작업자를 드래그하여 배치</span>`
                 }
               </div>
-              <!-- 공정별 배치 상세 -->
+              <!-- 공정별 배치 상세 (세부공정 포함) -->
               ${pt.length?`<div style="font-size:12px;">
-                ${pt.map(t=>`
-                  <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid rgba(226,223,216,.4);">
+                ${pt.map(t=>{
+                  const subs=(t.subtasks||[]).filter(s=>s.name||s.worker);
+                  const mainRow=`<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid rgba(226,223,216,.4);">
                     <span class="cat-chip" style="background:${cc(t.cat).bg};color:${cc(t.cat).fg};font-size:10.5px;">${t.cat||'-'}</span>
-                    <span style="flex:1;font-size:12.5px;">${t.task}</span>
+                    <span style="flex:1;font-size:12.5px;font-weight:500;">${t.task}</span>
                     <span style="color:${t.worker?'var(--ink2)':'var(--ink3)'};font-size:12px;">${t.worker||'미배치'}</span>
                     <span class="status-badge ${sc(t.status)}" style="font-size:10px;padding:1px 6px;">${t.status}</span>
                     <button onclick="openAssignWorker('${t.key}')" style="padding:1px 6px;font-size:10.5px;border:1px solid var(--rule);border-radius:3px;background:transparent;cursor:pointer;color:var(--blue);">배치</button>
-                  </div>`).join('')}
+                  </div>`;
+                  const subRows=subs.map(s=>`<div style="display:flex;align-items:center;gap:8px;padding:3px 0 3px 20px;border-bottom:1px solid rgba(226,223,216,.2);background:rgba(0,0,0,.015);">
+                    <span style="color:var(--ink3);font-size:10px;">└</span>
+                    <span style="font-size:10.5px;color:var(--ink3);width:55px;flex-shrink:0;">세부공정</span>
+                    <span style="flex:1;font-size:12px;">${s.name||'세부공정'}</span>
+                    <span style="color:${s.worker?'var(--ink2)':'var(--ink3)'};font-size:11.5px;">${s.worker||'미배치'}</span>
+                    <span class="status-badge ${sc(s.status||'시작 전')}" style="font-size:9.5px;padding:1px 5px;">${s.status||'시작 전'}</span>
+                  </div>`).join('');
+                  return mainRow+subRows;
+                }).join('')}
               </div>`:''}
             </div>
           </div>
@@ -2296,6 +2340,7 @@ function openNewProjectModal(){
   document.getElementById('np-start').value=today;document.getElementById('np-end').value=in3.toISOString().split('T')[0];
   document.getElementById('aiHistory').innerHTML=`<div style="font-size:12px;color:var(--ink3);text-align:center;padding-top:30px;">프로젝트 정보 입력 후 "자동 생성" 또는 직접 요청하세요</div>`;
   document.getElementById('taskBody').innerHTML='';document.getElementById('taskCount').textContent='(0개)';aiChatHist=[];
+  setMarkerRows([]); // 마커 초기화
   openModal('newProjectModal');
 }
 async function saveNewProject(){
@@ -2314,6 +2359,7 @@ async function saveNewProject(){
     end,
     desc:document.getElementById('np-desc').value,
     color:PC[projects.length%PC.length],
+    markers:getMarkerRows(), // 중요일정 마커
     createdAt:new Date().toISOString(),
     createdBy:currentUser?.email||'',
     tasks:[], // 로컬에는 tasks 별도 저장
@@ -3018,10 +3064,10 @@ function buildGanttGrid(tasks, dateStart, dateEnd){
       const isHol=KO_HOLIDAYS.has(ds);const isSun=d===6;const isSat=d===5;
       const isToday=day.getTime()===today.getTime();const dateNum=day.getDate();
       const color=isToday?'var(--accent)':isHol||isSun?'#e03535':isSat?'#1e5fa8':'var(--ink2)';
-      return`<div style="width:${DAY_W}px;flex-shrink:0;text-align:center;font-size:9.5px;font-family:'DM Mono',monospace;color:${color};${isToday?'background:var(--alt);':''}border-right:1px solid ${d===4?'rgba(0,0,0,.12)':'var(--rule)'};padding:2px 0;line-height:1.3;">
+      return`<div style="width:${DAY_W}px;flex-shrink:0;text-align:center;font-size:9.5px;font-family:'DM Mono',monospace;color:${color};${isToday?'background:var(--alt);border-bottom:2px solid var(--accent);':''}border-right:1px solid ${d===4?'rgba(0,0,0,.12)':'var(--rule)'};padding:2px 0;line-height:1.3;">
         <div style="font-size:9px;opacity:.7">${dayNames[d]}</div>
         <div style="font-weight:${isToday?700:400}">${dateNum}</div>
-        ${isHol?`<div style="font-size:7px;color:#e03535">●</div>`:''}
+        ${isToday?`<div style="font-size:7px;color:var(--accent);font-weight:700;letter-spacing:-.02em;">TODAY</div>`:(isHol?`<div style="font-size:7px;color:#e03535">●</div>`:'')}
       </div>`;
     })
   ).join('');
@@ -3127,7 +3173,14 @@ function ganttAllHTML(){
 // ── 작업자별 공정표 ───────────────────────────────────────────────
 function ganttWorkerFilterHTML(){
   const wm=getWorkerMaster();
-  const workerNames=[...new Set(allTasks.map(t=>t.worker).filter(Boolean))].sort();
+  // 마스터 등록 작업자 + allTasks/세부공정에서 쓰인 작업자 통합
+  const masterNames=wm.map(w=>w.name).filter(Boolean);
+  const taskWorkers=[...new Set(allTasks.flatMap(t=>{
+    const main=t.worker?[t.worker]:[];
+    const subs=(t.subtasks||[]).map(s=>s.worker).filter(Boolean);
+    return [...main,...subs];
+  }))];
+  const workerNames=[...new Set([...masterNames,...taskWorkers])].sort();
   if(!ganttWorkerFilter&&workerNames.length) ganttWorkerFilter=workerNames[0];
 
   const myTasks=allTasks.filter(t=>t.worker===ganttWorkerFilter||
@@ -3288,6 +3341,39 @@ function ganttDrop(event, targetKey, targetCat){
   // 공정표만 갱신 (다른 탭 불필요)
   renderMgr('gantt');
   toast(`✓ "${dragTask.task}" 이동됨${dragCat!==targetCat&&targetCat?` → ${targetCat}`:''}`);
+}
+
+// ══ 중요일정 마커 ══
+function addMarkerRow(m={}){
+  const wrap=document.getElementById('markerBody');if(!wrap)return;
+  const idx=wrap.children.length;
+  const div=document.createElement('div');
+  div.style.cssText='display:flex;align-items:center;gap:6px;padding:4px 0;';
+  div.innerHTML=`
+    <input type="date" value="${m.date||''}" placeholder="날짜"
+      style="padding:5px 8px;border:1px solid var(--rule);border-radius:4px;font-family:inherit;font-size:12.5px;outline:none;">
+    <input value="${m.label||''}" placeholder="이름 (보고회, 납품일...)"
+      style="flex:1;padding:5px 8px;border:1px solid var(--rule);border-radius:4px;font-family:inherit;font-size:12.5px;outline:none;">
+    <select style="padding:5px 8px;border:1px solid var(--rule);border-radius:4px;font-family:inherit;font-size:12px;outline:none;">
+      ${Object.keys(MARKER_COLORS).map(k=>`<option value="${k}" ${(m.type||'기타')===k?'selected':''}>${k}</option>`).join('')}
+    </select>
+    <button onclick="this.closest('div').remove()"
+      style="padding:3px 8px;border:1px solid var(--rule);border-radius:4px;background:transparent;cursor:pointer;color:var(--accent);font-size:12px;">×</button>
+  `;
+  wrap.appendChild(div);
+}
+function setMarkerRows(markers=[]){
+  const wrap=document.getElementById('markerBody');if(!wrap)return;
+  wrap.innerHTML='';
+  markers.forEach(m=>addMarkerRow(m));
+}
+function getMarkerRows(){
+  const wrap=document.getElementById('markerBody');if(!wrap)return[];
+  return [...wrap.children].map(div=>{
+    const inputs=div.querySelectorAll('input');
+    const sel=div.querySelector('select');
+    return{date:inputs[0]?.value||'',label:inputs[1]?.value||'',type:sel?.value||'기타'};
+  }).filter(m=>m.date&&m.label);
 }
 
 function toggleGanttRow(key){
@@ -3578,6 +3664,8 @@ function openEditProjectModal(pid){
   // 기존 tasks 불러오기
   const pTasks=getProjectTasks(pid);
   setTableTasks(pTasks);
+  // 중요일정 마커 불러오기
+  setMarkerRows(p.markers||[]);
   // 저장 버튼을 "업데이트"로 변경
   const saveBtn=document.querySelector('#newProjectModal .modal-actions .btn-primary');
   if(saveBtn){saveBtn.textContent='💾 업데이트';saveBtn.onclick=()=>updateExistingProject(pid);}
@@ -3592,6 +3680,7 @@ async function updateExistingProject(pid){
   p.name=name;p.client=document.getElementById('np-client').value;p.pm=document.getElementById('np-pm').value;
   p.lead=document.getElementById('np-lead').value;p.start=document.getElementById('np-start').value;p.end=end;
   p.desc=document.getElementById('np-desc').value;p.tasks=tasks;
+  p.markers=getMarkerRows(); // 중요일정 마커 저장
   setLoading(true);
   try{
     // 로컬 저장
