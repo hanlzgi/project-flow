@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PROJECT FLOW</title>
-<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap');
 :root{--bg:#f4f2ee;--paper:#faf9f6;--ink:#1a1814;--ink2:#6b6760;--ink3:#b0ada8;--rule:#e2dfd8;--accent:#c8521a;--alt:#f5e8e0;--blue:#1e5fa8;--blue-lt:#e3ecf7;--green:#2a7a4b;--green-lt:#e2f2e9;--yellow:#c89a1a;--yellow-lt:#fdf4d8;--purple:#7c4ba0;--purple-lt:#f0e8f8;--radius:6px;--shadow:0 1px 3px rgba(0,0,0,.08),0 4px 16px rgba(0,0,0,.05);--shadow-lg:0 8px 32px rgba(0,0,0,.12);}
@@ -14,8 +13,6 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
 .login-card{background:var(--paper);border:1px solid var(--rule);border-radius:16px;padding:48px 40px;text-align:center;max-width:420px;width:100%;box-shadow:var(--shadow-lg);}
 .login-logo{font-family:'DM Mono',monospace;font-size:22px;font-weight:500;color:var(--accent);letter-spacing:.02em;margin-bottom:8px;}
 .login-sub{font-size:13px;color:var(--ink2);margin-bottom:32px;line-height:1.6;}
-.login-divider{display:flex;align-items:center;gap:12px;margin:20px 0;font-size:12px;color:var(--ink3);}
-.login-divider::before,.login-divider::after{content:'';flex:1;height:1px;background:var(--rule);}
 .email-form{display:flex;flex-direction:column;gap:8px;}
 .email-form input{padding:9px 12px;border:1px solid var(--rule);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;background:var(--bg);transition:border-color .15s;}
 .email-form input:focus{border-color:var(--accent);}
@@ -176,14 +173,18 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
 <div id="loginScreen">
   <div class="login-card">
     <div class="login-logo">PROJECT FLOW</div>
-    <div class="login-sub">제작 스케줄 통합 관리 시스템<br>이메일로 로그인하세요</div>
-    <div id="g_id_onload" data-client_id="GOOGLE_CLIENT_ID_PLACEHOLDER" data-callback="handleGoogleLogin" data-auto_prompt="false"></div>
-    <div class="g_id_signin" data-type="standard" data-size="large" data-theme="outline" data-text="signin_with" data-locale="ko" data-width="320"></div>
-    <div class="login-divider">이메일로 로그인</div>
+    <div class="login-sub">제작 스케줄 통합 관리 시스템</div>
+
     <div class="email-form">
-      <input type="email" id="loginEmail" placeholder="이메일 주소" autocomplete="email">
-      <input type="password" id="loginPassword" placeholder="비밀번호 (아무 값이나 입력)" onkeydown="if(event.key==='Enter')emailLogin()">
+      <input type="email" id="loginEmail" placeholder="등록된 이메일 주소 입력"
+        autocomplete="email" onkeydown="if(event.key==='Enter')emailLogin()"
+        style="font-size:14px;padding:11px 14px;">
       <button class="btn-login" onclick="emailLogin()">로그인</button>
+    </div>
+
+    <div style="margin-top:10px;font-size:12px;color:var(--ink3);text-align:center;line-height:1.7;">
+      관리자가 등록한 이메일로 로그인하세요<br>
+      <span style="font-size:11px;">관리자 권한은 작업자 탭에서 설정합니다</span>
     </div>
 
     <!-- Sheets 연동 복구 -->
@@ -193,24 +194,22 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
         <input id="sheetsRecoverInput" class="form-input" style="flex:1;font-size:12.5px;" placeholder="Sheets URL 또는 ID 붙여넣기">
         <button class="btn btn-sm btn-primary" onclick="applyRecoverSheets()">연결</button>
       </div>
-      <div style="font-size:11px;color:var(--ink3);margin-top:4px;">Sheets URL에서 /d/ 뒤의 ID 부분만 붙여넣어도 됩니다</div>
+      <div style="font-size:11px;color:var(--ink3);margin-top:4px;">스프레드시트 URL에서 /d/ 뒤의 ID 부분만 붙여넣어도 됩니다</div>
     </div>
 
     <div style="margin-top:14px;display:flex;justify-content:center;gap:16px;font-size:11.5px;">
       <button onclick="toggleSheetsRecover()" style="background:none;border:none;color:var(--blue);cursor:pointer;text-decoration:underline;">📊 Sheets 재연동</button>
       <span style="color:var(--rule)">|</span>
-      <button onclick="showQuickSetup()" style="background:none;border:none;color:var(--ink3);cursor:pointer;text-decoration:underline;">처음 사용</button>
+      <button onclick="showQuickSetup()" style="background:none;border:none;color:var(--ink3);cursor:pointer;text-decoration:underline;">처음 사용 안내</button>
     </div>
 
     <div id="quickSetupWrap" style="margin-top:12px;display:none;background:var(--blue-lt);border-radius:8px;padding:12px;font-size:12px;color:var(--blue);text-align:left;line-height:1.8;">
       <strong>처음 사용 순서:</strong><br>
-      1. <strong>hanlzgi@gmail.com</strong> (관리자)으로 로그인<br>
-      2. 사이드바 하단 <strong>Sheets 연동</strong> 클릭 → URL 입력 → 저장<br>
-      3. 작업자 탭 → <strong>작업자 등록</strong> → 이름 + 로그인 이메일 입력<br>
-      4. 로그아웃 후 작업자 이메일로 재로그인
+      1. <strong>hanlzgi@gmail.com</strong> 으로 로그인 (기본 관리자)<br>
+      2. 사이드바 하단 <strong>Sheets 연동</strong> → URL 입력 → 저장<br>
+      3. 작업자 탭 → <strong>작업자 등록</strong> → 이름 + 이메일 + 권한 설정<br>
+      4. 로그아웃 후 등록한 이메일로 재로그인
     </div>
-
-    <div class="login-notice" style="margin-top:12px;">ℹ️ <strong>hanlzgi@gmail.com</strong> → 관리자 | 그 외 이메일 → 작업자</div>
   </div>
 </div>
 
@@ -645,11 +644,6 @@ function getSheetsId(){return localStorage.getItem('pf_sheets_id')||'';}
 function isSynced(){return!!getSheetsId();}
 
 // ══ AUTH ══
-async function handleGoogleLogin(r){
-  setLoading(true);
-  try{const res=await api('/api/auth',{method:'POST',body:JSON.stringify({action:'verifyIdToken',credential:r.credential})});if(res.ok)loginOk(res.user,res.token);else toast('로그인 실패');}catch(e){toast('오류: '+e.message);}
-  setLoading(false);
-}
 async function emailLogin(){
   const email=document.getElementById('loginEmail').value.trim().toLowerCase();
   if(!email||!email.includes('@')){toast('이메일을 입력하세요');return;}
@@ -2922,12 +2916,11 @@ document.querySelectorAll('.modal-overlay').forEach(m=>{m.addEventListener('clic
 
 // ══ 초기화 ══
 function init(){
-  document.getElementById('g_id_onload').dataset.clientId=window.GOOGLE_CLIENT_ID||'YOUR_GOOGLE_CLIENT_ID';
-  // 이미 Sheets ID 있으면 로그인 화면에 연동 상태 표시
+  // Sheets ID 있으면 로그인 화면에 연동 상태 표시
   const sid=localStorage.getItem('pf_sheets_id');
   if(sid){
-    const notice=document.querySelector('.login-notice');
-    if(notice) notice.innerHTML=`ℹ️ <strong>hanlzgi@gmail.com</strong> → 관리자 | 그 외 이메일 → 작업자<br><span style="color:var(--green);font-size:11px;">● Sheets 연동됨 (${sid.slice(0,12)}...)</span>`;
+    const sub=document.querySelector('.login-sub');
+    if(sub) sub.innerHTML=`제작 스케줄 통합 관리 시스템 <span style="color:var(--green);font-size:11.5px;display:block;margin-top:4px;">● Sheets 연동됨</span>`;
   }
   if(checkSession())renderApp();
   else{document.getElementById('loginScreen').style.display='flex';document.getElementById('appScreen').style.display='none';}
@@ -2952,9 +2945,8 @@ async function applyRecoverSheets(){
   localStorage.setItem('pf_sheets_id',id);
   document.getElementById('sheetsRecoverWrap').style.display='none';
   toast('✓ Sheets ID 저장됨 — 로그인 후 데이터가 자동으로 불러와집니다');
-  // 연동 상태 표시
-  const notice=document.querySelector('.login-notice');
-  if(notice) notice.innerHTML=`ℹ️ <strong>hanlzgi@gmail.com</strong> → 관리자 | 그 외 이메일 → 작업자<br><span style="color:var(--green);font-size:11px;">● Sheets 연동됨 (${id.slice(0,12)}...)</span>`;
+  const sub=document.querySelector('.login-sub');
+  if(sub) sub.innerHTML=`제작 스케줄 통합 관리 시스템 <span style="color:var(--green);font-size:11.5px;display:block;margin-top:4px;">● Sheets 연동됨</span>`;
 }
 
 // 처음 사용 안내 토글
