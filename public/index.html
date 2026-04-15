@@ -1385,10 +1385,11 @@ function ganttHTML(){
   const DAY_W = 32; // 하루 픽셀 너비
   const WEEK_W = DAY_W * 7; // 주 픽셀 너비
 
+  const today = new Date(); today.setHours(0,0,0,0); // ← gridStart보다 먼저 선언
+
   const pS = new Date(project.start); pS.setHours(0,0,0,0);
   const pE = new Date(project.end);   pE.setHours(23,59,59,0);
 
-  // 시작 주의 월요일부터
   // gridStart: 오늘 -7일부터 시작 (프로젝트 시작일보다 이른 경우 프로젝트 시작일 사용)
   const gridStart = new Date(today);
   gridStart.setDate(gridStart.getDate() - 7);
@@ -1406,7 +1407,7 @@ function ganttHTML(){
   const totalDays = weeks.length * 7;
   const totalW    = totalDays * DAY_W;
 
-  const today = new Date(); today.setHours(0,0,0,0);
+  // today는 위에서 이미 선언됨
 
   // ── 월 헤더 (위 행) ──
   const monthSpans = [];
@@ -2177,6 +2178,7 @@ function workerGanttHTML(mn){
 
   const KO_HOL=getKoreanHolidays(new Date(project.start).getFullYear(),new Date(project.end).getFullYear());
   const DAY_W=32;
+  const today=new Date();today.setHours(0,0,0,0); // ← gridStart보다 먼저 선언
   const pS=new Date(project.start);pS.setHours(0,0,0,0);
   const pE=new Date(project.end);pE.setHours(23,59,59,0);
   // gridStart: 오늘 -7일부터 시작
@@ -2186,7 +2188,7 @@ function workerGanttHTML(mn){
   if(pS<gridStart){gridStart.setTime(pS.getTime());const d2=gridStart.getDay();gridStart.setDate(gridStart.getDate()-(d2===0?6:d2-1));}
   const weeks=[];let cur=new Date(gridStart);
   while(cur<=pE){weeks.push(new Date(cur));cur.setDate(cur.getDate()+7);}
-  const today=new Date();today.setHours(0,0,0,0);
+  // today는 위에서 이미 선언됨
 
   // 월 헤더
   const monthSpans=[];
