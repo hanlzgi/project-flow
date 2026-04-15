@@ -607,14 +607,36 @@ async function handleGoogleLogin(r){
   setLoading(false);
 }
 async function emailLogin(){
-  const email=document.getElementById('loginEmail').value.trim();
+  const email=document.getElementById('loginEmail').value.trim().toLowerCase();
   if(!email||!email.includes('@')){toast('이메일을 입력하세요');return;}
   setLoading(true);
-  try{const res=await api('/api/auth',{method:'POST',body:JSON.stringify({action:'emailLogin',email})});if(res.ok)loginOk(res.user,res.token);else throw new Error(res.error||'실패');}
-  catch(e){toast('오류: '+e.message);}
+  try{
+    const res=await api('/api/auth',{method:'POST',body:JSON.stringify({action:'emailLogin',email})});
+    if(res.ok) loginOk(res.user,res.token);
+    else throw new Error(res.error||'실패');
+  }catch(e){
+    // 서버 실패 시 로컬 폴백 — Workers localStorage에서 이름 찾기
+    const wm=JSON.parse(localStorage.getItem('pf_workers')||'[]');
+    const found=wm.find(w=>w.email&&w.email.toLowerCase().trim()===email);
+    const role=(process.env?.ADMIN_EMAILS||'hanlzgi@gmail.com').includes(email)?'manager':'worker';
+    const user={
+      email, name:found?.name||email.split('@')[0],
+      picture:'', role,
+      workerName:found?.name||'', workerId:found?.id||'',
+    };
+    const token=btoa(JSON.stringify({...user,exp:Date.now()+7*24*3600*1000}));
+    loginOk(user,token);
+    if(found) toast(`${found.name}님으로 로그인됨`);
+    else if(e.message!=='실패') toast('서버 연결 안 됨 — 로컬 모드로 로그인');
+  }
   setLoading(false);
 }
-function loginOk(user,token){currentUser=user;localStorage.setItem('pf_session',token);localStorage.setItem('pf_user',JSON.stringify(user));renderApp();}
+function loginOk(user,token){
+  currentUser=user;
+  localStorage.setItem('pf_session',token);
+  localStorage.setItem('pf_user',JSON.stringify(user));
+  renderApp();
+}
 function logout(){
   localStorage.removeItem('pf_session');localStorage.removeItem('pf_user');currentUser=null;
   document.getElementById('loginScreen').style.display='flex';
@@ -622,7 +644,23 @@ function logout(){
   document.getElementById('managerLayout').style.display='none';
   document.getElementById('workerLayout').style.display='none';
 }
-function checkSession(){try{const t=localStorage.getItem('pf_session'),u=JSON.parse(localStorage.getItem('pf_user')||'null');if(!t||!u)return false;const p=JSON.parse(atob(t));if(p.exp<Date.now()){logout();return false;}currentUser=u;return true;}catch{return false;}}
+function checkSession(){
+  try{
+    const t=localStorage.getItem('pf_session');
+    const u=JSON.parse(localStorage.getItem('pf_user')||'null');
+    if(!t||!u)return false;
+    const p=JSON.parse(atob(t));
+    if(p.exp<Date.now()){logout();return false;}
+    currentUser=u;
+    // workerName이 세션에 없으면 Workers 로컬에서 보완
+    if(!currentUser.workerName&&currentUser.email){
+      const wm=JSON.parse(localStorage.getItem('pf_workers')||'[]');
+      const found=wm.find(w=>w.email&&w.email.toLowerCase()===currentUser.email.toLowerCase());
+      if(found){currentUser.workerName=found.name;currentUser.workerId=found.id;}
+    }
+    return true;
+  }catch{return false;}
+}
 
 // ══ DATA LAYER — Sheets 우선, 로컬 폴백 ══
 async function loadProjects(){
@@ -1302,37 +1340,38 @@ function openWorkerProjectDetail(pid,workerName){
 
 // ── 로그인 사용자 이메일로 내 작업 필터 ──────────────────────────
 function isMyTask(t){
-  const email  = (currentUser?.email||'').toLowerCase().trim();
-  const name   = (currentUser?.name||currentUser?.email?.split('@')[0]||'').trim();
+  const email      = (currentUser?.email||'').toLowerCase().trim();
+  // 세션에 저장된 workerName (auth.js에서 Workers 시트 조회해 넣어준 이름)
+  const sessionName = (currentUser?.workerName||'').trim();
+  // 로그인 이름 (구글 계정 표시명 또는 이메일 앞부분)
+  const loginName   = (currentUser?.name||'').trim();
 
-  // 작업자 마스터에서 현재 이메일로 등록된 작업자 이름 찾기
+  // 작업자 마스터 로컬에서도 이메일로 이름 역조회
   const wm = getWorkerMaster();
-  const masterWorker = wm.find(w=>
-    w.email && w.email.toLowerCase().trim()===email
-  );
-  const masterName = masterWorker?.name||'';
+  const masterWorker = wm.find(w => w.email && w.email.toLowerCase().trim()===email);
+  const masterName   = (masterWorker?.name||'').trim();
 
-  // 비교 대상 집합 (이메일, 이름 모두)
+  // 매칭 가능한 이름 집합 (비어있는 값 제외)
+  const myNames  = new Set([sessionName, masterName, loginName].filter(Boolean));
   const myEmails = new Set([email].filter(Boolean));
-  const myNames  = new Set([name, masterName].filter(Boolean));
 
   const tWorker      = (t.worker||'').trim();
   const tWorkerEmail = (t.workerEmail||'').toLowerCase().trim();
   const tWorkers     = Array.isArray(t.workers)
-    ? t.workers.map(w=>(w||'').trim())
+    ? t.workers.map(w=>(w||'').trim()).filter(Boolean)
     : [tWorker].filter(Boolean);
 
   // 이메일 직접 매칭
-  if(tWorkerEmail && myEmails.has(tWorkerEmail)) return true;
-  // 이름 매칭 (worker 필드)
-  if(tWorker && myNames.has(tWorker)) return true;
-  // workers 배열 매칭 (이름 또는 이메일)
-  if(tWorkers.some(w=> myNames.has(w)||myEmails.has(w.toLowerCase()))) return true;
+  if (tWorkerEmail && myEmails.has(tWorkerEmail)) return true;
+  // 이름 매칭 (worker 단일 필드)
+  if (tWorker && myNames.has(tWorker)) return true;
+  // workers 배열 매칭
+  if (tWorkers.some(w => myNames.has(w) || myEmails.has(w.toLowerCase()))) return true;
   // 세부공정 담당자 매칭
-  if((t.subtasks||[]).some(s=>{
-    const sw=(s.worker||'').trim();
-    const se=(s.workerEmail||'').toLowerCase().trim();
-    return myNames.has(sw)||myEmails.has(se)||myEmails.has(sw.toLowerCase());
+  if ((t.subtasks||[]).some(s => {
+    const sw = (s.worker||'').trim();
+    const se = (s.workerEmail||'').toLowerCase().trim();
+    return myNames.has(sw) || myEmails.has(se) || myEmails.has(sw.toLowerCase());
   })) return true;
 
   return false;
