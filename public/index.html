@@ -872,7 +872,9 @@ async function loadProjects(){
         // id 기준 중복 제거 (마지막 행 우선)
         const map=new Map();
         rows.filter(r=>r[0]&&r[0]!=='id').forEach(r=>{
-          map.set(r[0],{id:r[0],name:r[1],client:r[2],pm:r[3],lead:r[4],start:r[5],end:r[6],desc:r[7],color:r[8]||PC[0],createdAt:r[9],createdBy:r[10],markers:r[11]?JSON.parse(r[11]):[]});
+          let markers = [];
+          try { if(r[11]) markers = JSON.parse(r[11]); } catch(e){}
+          map.set(r[0],{id:r[0],name:r[1],client:r[2],pm:r[3],lead:r[4],start:r[5],end:r[6],desc:r[7],color:r[8]||PC[0],createdAt:r[9],createdBy:r[10],markers});
         });
         const parsed=[...map.values()];
         if(parsed.length) return parsed;
@@ -1255,6 +1257,20 @@ async function loadAndRender(role){
   projects=await loadProjects();
   allTasks=await loadTasks();
   normalizeTaskProjectIds(); // projectId 불일치 자동 복구
+  // 고아 마커 정리 — task가 삭제됐는데 markers만 남은 경우 제거
+  const livingKeys = new Set(allTasks.map(t=>t.key));
+  let markerDirty = false;
+  projects.forEach(p=>{
+    if(!p.markers?.length) return;
+    const before = p.markers.length;
+    p.markers = p.markers.filter(m=>!m._taskKey||livingKeys.has(m._taskKey));
+    if(p.markers.length !== before) markerDirty = true;
+  });
+  if(markerDirty){
+    const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');
+    ps.forEach(lsp=>{ const mp=projects.find(p=>p.id===lsp.id); if(mp) lsp.markers=mp.markers; });
+    localStorage.setItem('pf_projects',JSON.stringify(ps));
+  }
   // markers 보완: Sheets에 없는 경우 localStorage에서 복원
   const lsProjs=JSON.parse(localStorage.getItem('pf_projects')||'[]');
   projects.forEach(p=>{
@@ -3642,6 +3658,12 @@ async function deleteTask(key){
 
   // 메모리에서 제거
   allTasks = allTasks.filter(t=>t.key!==key);
+
+  // 해당 task와 연결된 마커도 정리
+  const proj = projects.find(p=>p.id===t.projectId);
+  if(proj?.markers){
+    proj.markers = proj.markers.filter(m=>m._taskKey!==key);
+  }
 
   // localStorage 반영
   const ps = JSON.parse(localStorage.getItem('pf_projects')||'[]');
