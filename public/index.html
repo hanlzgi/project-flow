@@ -233,13 +233,31 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
       <div class="sidebar-list" id="projectSidebar"></div>
       <div style="padding:10px 12px;border-top:1px solid var(--rule);display:flex;align-items:center;gap:6px;">
         <span id="syncBadge" class="local-badge">● 로컬</span>
-        <button onclick="openModal('sheetsModal')" style="font-size:11px;color:var(--blue);background:none;border:none;cursor:pointer;text-decoration:underline;">Sheets 연동</button>
+        <button onclick="openSheetsModal()" style="font-size:11px;color:var(--blue);background:none;border:none;cursor:pointer;text-decoration:underline;">Sheets 연동</button>
       </div>
     </div>
     <div class="content-area" id="managerContent"></div>
   </div>
   <div id="workerLayout" style="display:none;height:calc(100vh - 52px);overflow:hidden;display:none;flex-direction:column;">
     <div id="workerContent" style="flex:1;overflow:auto;height:100%;"></div>
+    <!-- 작업자 페이지 하단 Sheets 연동 바 -->
+    <div style="flex-shrink:0;padding:6px 16px;border-top:1px solid var(--rule);background:var(--paper);display:flex;align-items:center;gap:8px;">
+      <span id="syncBadgeWorker" class="local-badge" style="font-size:11px;">● 로컬</span>
+      <button onclick="openSheetsModal()" style="font-size:11.5px;color:var(--blue);background:none;border:none;cursor:pointer;text-decoration:underline;padding:0;">Sheets 연동</button>
+      <span style="flex:1"></span>
+      <button onclick="workerSheetsAction('load')" title="Sheets에서 최신 데이터 불러오기"
+        style="padding:3px 10px;font-size:11.5px;border:1px solid var(--blue);border-radius:4px;background:var(--blue-lt);color:var(--blue);cursor:pointer;font-family:inherit;">
+        ⬇ 불러오기
+      </button>
+      <button onclick="workerSheetsAction('save')" title="현재 데이터를 Sheets에 저장"
+        style="padding:3px 10px;font-size:11.5px;border:1px solid var(--green);border-radius:4px;background:var(--green-lt);color:var(--green);cursor:pointer;font-family:inherit;">
+        ⬆ 저장하기
+      </button>
+      <button onclick="workerSheetsAction('merge')" title="Sheets와 로컬 데이터 합치기"
+        style="padding:3px 10px;font-size:11.5px;border:1px solid var(--purple);border-radius:4px;background:var(--purple-lt);color:var(--purple);cursor:pointer;font-family:inherit;">
+        🔀 합치기
+      </button>
+    </div>
   </div>
 </div>
 
@@ -320,23 +338,55 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
 
 <!-- Sheets 연동 모달 -->
 <div class="modal-overlay" id="sheetsModal">
-  <div class="modal">
+  <div class="modal" style="width:520px;">
     <button class="modal-close" onclick="closeModal('sheetsModal')">×</button>
     <h3>📊 Google Sheets 연동</h3>
-    <p style="font-size:12.5px;color:var(--ink2);margin-bottom:14px;line-height:1.6;">Google Sheets를 데이터 저장소로 연동합니다. 모든 프로젝트·작업이 지정된 시트에 저장됩니다.</p>
-    <div class="form-group" style="margin-bottom:10px;">
+
+    <!-- Sheets ID 입력 -->
+    <div class="form-group" style="margin-bottom:12px;">
       <label class="form-label">Google Sheets URL 또는 ID</label>
       <input class="form-input" id="sheets-url" placeholder="https://docs.google.com/spreadsheets/d/SHEET_ID/edit">
     </div>
-    <div style="background:var(--blue-lt);border-radius:6px;padding:10px 12px;font-size:12px;color:var(--blue);line-height:1.7;margin-bottom:4px;">
-      <strong>연동 방법:</strong><br>
-      1. Google Sheets 새 스프레드시트 생성<br>
-      2. Vercel 환경변수의 서비스 계정 이메일에 <strong>편집자 권한</strong> 공유<br>
-      3. 위 URL 입력 → 저장 → Vercel 환경변수 GOOGLE_SHEET_ID에도 동일 ID 입력
+
+    <!-- 현재 연동 상태 -->
+    <div id="sheetsStatusRow" style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:8px 12px;background:var(--bg);border-radius:6px;font-size:12.5px;">
+      <span id="sheetsStatusDot">⬤</span>
+      <span id="sheetsStatusText">연동 상태 확인 중...</span>
+      <span id="sheetsLastSync" style="margin-left:auto;color:var(--ink3);font-size:11px;"></span>
     </div>
-    <div class="modal-actions">
-      <button class="btn btn-secondary" onclick="closeModal('sheetsModal')">취소</button>
-      <button class="btn btn-green" onclick="saveSheets()">연동 저장</button>
+
+    <!-- 3가지 액션 버튼 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;">
+
+      <button onclick="sheetsAction('load')" style="padding:12px 8px;border:1.5px solid var(--blue);border-radius:8px;background:var(--blue-lt);cursor:pointer;font-family:inherit;text-align:center;transition:all .15s;">
+        <div style="font-size:18px;margin-bottom:4px;">⬇️</div>
+        <div style="font-size:12.5px;font-weight:600;color:var(--blue);">불러오기</div>
+        <div style="font-size:11px;color:var(--ink2);margin-top:2px;line-height:1.4;">Sheets → 앱<br>로컬 데이터 교체</div>
+      </button>
+
+      <button onclick="sheetsAction('save')" style="padding:12px 8px;border:1.5px solid var(--green);border-radius:8px;background:var(--green-lt);cursor:pointer;font-family:inherit;text-align:center;transition:all .15s;">
+        <div style="font-size:18px;margin-bottom:4px;">⬆️</div>
+        <div style="font-size:12.5px;font-weight:600;color:var(--green);">저장하기</div>
+        <div style="font-size:11px;color:var(--ink2);margin-top:2px;line-height:1.4;">앱 → Sheets<br>Sheets 데이터 교체</div>
+      </button>
+
+      <button onclick="sheetsAction('merge')" style="padding:12px 8px;border:1.5px solid var(--purple);border-radius:8px;background:var(--purple-lt);cursor:pointer;font-family:inherit;text-align:center;transition:all .15s;">
+        <div style="font-size:18px;margin-bottom:4px;">🔀</div>
+        <div style="font-size:12.5px;font-weight:600;color:var(--purple);">합치기</div>
+        <div style="font-size:11px;color:var(--ink2);margin-top:2px;line-height:1.4;">양쪽 데이터<br>id 기준 병합</div>
+      </button>
+
+    </div>
+
+    <!-- 처음 연동 시 안내 -->
+    <div id="sheetsFirstSetup" style="background:var(--alt);border-radius:6px;padding:9px 12px;font-size:11.5px;color:var(--ink2);line-height:1.7;margin-bottom:4px;">
+      <strong>처음 연동 시:</strong> URL 입력 → <strong>저장하기</strong> 클릭하면 Sheets 탭이 자동 생성됩니다
+    </div>
+
+    <div id="sheetsErrorBox"></div>
+
+    <div class="modal-actions" style="margin-top:12px;">
+      <button class="btn btn-secondary" onclick="closeModal('sheetsModal')">닫기</button>
     </div>
   </div>
 </div>
@@ -733,7 +783,12 @@ async function loadProjects(){
       const r=await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'read',sheetName:'Projects'})});
       if(r.values&&r.values.length>1){
         const[,...rows]=r.values;
-        const parsed=rows.filter(r=>r[0]).map(r=>({id:r[0],name:r[1],client:r[2],pm:r[3],lead:r[4],start:r[5],end:r[6],desc:r[7],color:r[8]||PC[0],createdAt:r[9],createdBy:r[10]}));
+        // id 기준 중복 제거 (마지막 행 우선)
+        const map=new Map();
+        rows.filter(r=>r[0]&&r[0]!=='id').forEach(r=>{
+          map.set(r[0],{id:r[0],name:r[1],client:r[2],pm:r[3],lead:r[4],start:r[5],end:r[6],desc:r[7],color:r[8]||PC[0],createdAt:r[9],createdBy:r[10]});
+        });
+        const parsed=[...map.values()];
         if(parsed.length) return parsed;
       }
     }catch(e){console.warn('Sheets loadProjects fail',e.message);}
@@ -747,15 +802,20 @@ async function loadTasks(){
       const r=await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'read',sheetName:'Tasks'})});
       if(r.values&&r.values.length>1){
         const[,...rows]=r.values;
-        const tasks=rows.filter(r=>r[0]).map(r=>({
-          id:r[0],projectId:r[1],projectName:r[2],projectColor:r[3]||'#888',
-          cat:r[4]||'기타',task:r[5],worker:r[6],workerEmail:r[15]||'',
-          weight:r[7],start:r[8],end:r[9],status:r[10]||'시작 전',
-          memo:r[11]||'',actualEnd:r[12]||'',createdBy:r[13]||'',
-          updatedAt:r[14]||'',key:r[0],
-          workers:r[16]?r[16].split(','):[r[6]].filter(Boolean),
-          workerRole:r[17]||'',subtasks:r[18]?JSON.parse(r[18]):[],
-        }));
+        // id 기준 중복 제거 (헤더행 제외)
+        const map=new Map();
+        rows.filter(r=>r[0]&&r[0]!=='id').forEach(r=>{
+          map.set(r[0],{
+            id:r[0],projectId:r[1],projectName:r[2],projectColor:r[3]||'#888',
+            cat:r[4]||'기타',task:r[5],worker:r[6],workerEmail:r[15]||'',
+            weight:r[7],start:r[8],end:r[9],status:r[10]||'시작 전',
+            memo:r[11]||'',actualEnd:r[12]||'',createdBy:r[13]||'',
+            updatedAt:r[14]||'',key:r[0],
+            workers:r[16]?r[16].split(','):[r[6]].filter(Boolean),
+            workerRole:r[17]||'',subtasks:r[18]?JSON.parse(r[18]):[],
+          });
+        });
+        const tasks=[...map.values()];
         // TaskUpdates로 최신 상태 오버레이
         return await overlayLatestStatus(tasks);
       }
@@ -803,16 +863,24 @@ async function overlayLatestStatus(tasks){
 }
 
 async function saveProject(p){
-  const row=[p.id,p.name,p.client,p.pm,p.lead,p.start,p.end,p.desc,p.color,p.createdAt,p.createdBy||currentUser?.email||''];
+  const row=[p.id,p.name,p.client||'',p.pm||'',p.lead||'',p.start||'',p.end||'',p.desc||'',p.color||'',p.createdAt||'',p.createdBy||currentUser?.email||''];
   if(isSynced()){
     try{
-      // 전체 프로젝트 목록으로 덮어씀 (중복 방지)
-      const allRows = projects.map(pr=>[pr.id,pr.name,pr.client||'',pr.pm||'',pr.lead||'',pr.start||'',pr.end||'',pr.desc||'',pr.color||'',pr.createdAt||'',pr.createdBy||'']);
-      // 저장하려는 p가 없으면 추가
-      if(!allRows.find(r=>r[0]===p.id)) allRows.push(row);
-      await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'clearAndWrite',sheetName:'Projects',values:allRows})});
+      // 1) Sheets에서 현재 최신 Projects 읽기 (다른 관리자가 등록한 것 포함)
+      const r=await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'read',sheetName:'Projects'})});
+      let sheetsRows=[];
+      if(r.values&&r.values.length>1){
+        const[,...rows]=r.values;
+        sheetsRows=rows.filter(r=>r[0]);
+      }
+      // 2) 기존 행에서 이 프로젝트 행만 교체 or 추가
+      const idx=sheetsRows.findIndex(r=>r[0]===p.id);
+      if(idx>=0) sheetsRows[idx]=row;
+      else sheetsRows.push(row);
+      // 3) 병합된 전체 목록으로 덮어씀
+      await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'clearAndWrite',sheetName:'Projects',values:sheetsRows})});
       syncBadge(true);return;
-    }catch(e){console.warn(e.message);}
+    }catch(e){console.warn('saveProject Sheets 실패:',e.message);}
   }
   const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');const i=ps.findIndex(x=>x.id===p.id);if(i>=0)ps[i]=p;else ps.push(p);localStorage.setItem('pf_projects',JSON.stringify(ps));syncBadge(false);
 }
@@ -835,19 +903,23 @@ async function saveTasks(pid,tasks){
   ]);
   if(isSynced()){
     try{
-      // 이 프로젝트 외의 기존 Tasks 행 유지 + 이 프로젝트 Tasks는 새 값으로 교체
+      // Sheets에서 현재 Tasks 전체 읽기 → 다른 프로젝트 행 보존 + 이 프로젝트만 교체
       const existingResp=await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'read',sheetName:'Tasks'})});
       let existingRows=[];
       if(existingResp.values&&existingResp.values.length>1){
         const[,...rows]=existingResp.values;
-        existingRows=rows.filter(r=>r[0]&&r[1]!==pid); // 다른 프로젝트 행만 유지
+        existingRows=rows.filter(r=>
+          r[0] &&           // id가 있어야 함
+          r[0]!=='id' &&    // 헤더행 제외
+          r[1]!==pid        // 다른 프로젝트 행만 유지
+        );
       }
       await api('/api/sheets',{method:'POST',body:JSON.stringify({
         action:'clearAndWrite',sheetName:'Tasks',
         values:[...existingRows,...newRows]
       })});
       return tasksWithKey;
-    }catch(e){console.warn(e.message);}
+    }catch(e){console.warn('saveTasks Sheets 실패:',e.message);}
   }
   const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');const proj=ps.find(x=>x.id===pid);
   if(proj){proj.tasks=tasksWithKey;localStorage.setItem('pf_projects',JSON.stringify(ps));}
@@ -871,13 +943,148 @@ async function updateStatus(key,upd){
   localStorage.setItem('pf_task_status',JSON.stringify(m));
 }
 
-function syncBadge(synced){const el=document.getElementById('syncBadge');if(!el)return;el.className=synced?'sheets-badge':'local-badge';el.textContent=synced?'● Sheets':'● 로컬';}
+function syncBadge(synced){
+  ['syncBadge','syncBadge2','syncBadgeWorker'].forEach(id=>{
+    const el=document.getElementById(id);if(!el)return;
+    el.className=synced?'sheets-badge':'local-badge';
+    el.textContent=synced?'● Sheets':'● 로컬';
+  });
+}
+
+// ── Sheets 모달 열기 (현재 상태 표시) ──────────────────────────────
+function openSheetsModal(){
+  const sid=localStorage.getItem('pf_sheets_id')||'';
+  const urlEl=document.getElementById('sheets-url');
+  if(urlEl) urlEl.value=sid;
+  // 상태 표시
+  const dot=document.getElementById('sheetsStatusDot');
+  const txt=document.getElementById('sheetsStatusText');
+  const last=document.getElementById('sheetsLastSync');
+  if(dot&&txt){
+    if(isSynced()){
+      dot.style.color='var(--green)';
+      txt.textContent='연동됨 ('+sid.slice(0,16)+'...)';
+      if(last) last.textContent='ID: '+sid.slice(0,20)+'...';
+    } else {
+      dot.style.color='var(--ink3)';
+      txt.textContent='연동되지 않음 — URL을 입력하세요';
+      if(last) last.textContent='';
+    }
+  }
+  openModal('sheetsModal');
+}
+
+// ── Sheets 3가지 액션 ─────────────────────────────────────────────
+async function sheetsAction(type){
+  const urlInput=document.getElementById('sheets-url').value.trim();
+  if(urlInput){
+    const m=urlInput.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    const id=m?m[1]:urlInput;
+    localStorage.setItem('pf_sheets_id',id);
+  }
+  if(!isSynced()){toast('Sheets URL을 먼저 입력하세요');return;}
+  setLoading(true);
+  try{
+    if(type==='load'){
+      // ⬇ Sheets → 앱 (로컬 교체)
+      await initSheetHeaders();
+      projects=await loadProjects();
+      allTasks=await loadTasks();
+      // localStorage도 갱신
+      localStorage.setItem('pf_projects',JSON.stringify(projects));
+      syncBadge(true);
+      closeModal('sheetsModal');
+      renderSidebar();renderMgr('dashboard');
+      toast(`✓ Sheets에서 불러옴 — 프로젝트 ${projects.length}개, 공정 ${allTasks.length}개`);
+
+    } else if(type==='save'){
+      // ⬆ 앱 → Sheets (Sheets 교체)
+      await initSheetHeaders();
+      // Projects 저장
+      const pRows=projects.map(p=>[p.id,p.name,p.client||'',p.pm||'',p.lead||'',p.start||'',p.end||'',p.desc||'',p.color||'',p.createdAt||'',p.createdBy||'']);
+      if(pRows.length) await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'clearAndWrite',sheetName:'Projects',values:pRows})});
+      // Tasks 저장
+      const tRows=allTasks.map(t=>[t.id,t.projectId,t.projectName||'',t.projectColor||'',t.cat||'',t.task,t.worker||'',t.weight||'',t.start||'',t.end||'',t.status||'시작 전',t.memo||'',t.actualEnd||'',t.createdBy||'',t.updatedAt||'',t.workerEmail||'',Array.isArray(t.workers)?t.workers.join(','):(t.worker||''),t.workerRole||'',t.subtasks?JSON.stringify(t.subtasks):'']);
+      if(tRows.length) await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'clearAndWrite',sheetName:'Tasks',values:tRows})});
+      // Workers 저장
+      const wm=getWorkerMaster();
+      const wRows=wm.map(w=>[w.id,w.name,w.role||'',w.type||'internal',w.email||'',w.skills||'',w.color||'',w.memo||'',w.createdAt||'',w.systemRole||'worker']);
+      if(wRows.length) await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'clearAndWrite',sheetName:'Workers',values:wRows})});
+      syncBadge(true);
+      closeModal('sheetsModal');
+      toast(`✓ Sheets에 저장됨 — 프로젝트 ${pRows.length}개, 공정 ${tRows.length}개, 작업자 ${wRows.length}명`);
+
+    } else if(type==='merge'){
+      // 🔀 양쪽 병합 (id 기준)
+      await initSheetHeaders();
+      // Projects 병합
+      const sProj=await loadProjects(); // Sheets 데이터
+      const mergedProjMap=new Map();
+      projects.forEach(p=>mergedProjMap.set(p.id,p));           // 로컬 먼저
+      sProj.forEach(p=>{ if(!mergedProjMap.has(p.id)) mergedProjMap.set(p.id,p); }); // Sheets에만 있는 것 추가
+      projects=[...mergedProjMap.values()];
+      // Tasks 병합
+      const sTasks=await loadTasks(); // Sheets 데이터
+      const mergedTaskMap=new Map();
+      allTasks.forEach(t=>mergedTaskMap.set(t.key||t.id,t));
+      sTasks.forEach(t=>{ if(!mergedTaskMap.has(t.key||t.id)) mergedTaskMap.set(t.key||t.id,t); });
+      allTasks=[...mergedTaskMap.values()];
+      // Workers 병합
+      const wm=getWorkerMaster();
+      const r=await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'read',sheetName:'Workers'})});
+      if(r.values&&r.values.length>1){
+        const[,...rows]=r.values;
+        rows.filter(r=>r[0]&&r[0]!=='id').forEach(row=>{
+          const email=(row[4]||'').toLowerCase();
+          if(!wm.find(w=>(w.email||'').toLowerCase()===email&&email)) wm.push({id:row[0],name:row[1],role:row[2]||'',type:row[3]||'internal',email:row[4]||'',skills:row[5]||'',color:row[6]||'',memo:row[7]||'',createdAt:row[8]||'',systemRole:row[9]||'worker'});
+        });
+        saveWorkerMaster(wm);
+      }
+      // 병합 결과를 Sheets에 저장
+      await sheetsAction('save');
+      localStorage.setItem('pf_projects',JSON.stringify(projects));
+      syncBadge(true);
+      renderSidebar();renderMgr('dashboard');
+      toast(`✓ 합치기 완료 — 프로젝트 ${projects.length}개, 공정 ${allTasks.length}개`);
+      return; // save에서 toast/modal 처리됨
+    }
+  }catch(e){
+    toast('오류: '+e.message);
+    console.error(e);
+  }finally{
+    setLoading(false);
+  }
+}
+
+// 작업자 페이지에서 Sheets 액션 (동일 로직, 작업자 패널 갱신)
+async function workerSheetsAction(type){
+  if(!isSynced()){
+    if(!confirm('Sheets 연동이 설정되지 않았습니다.\nSheets 연동 설정 화면을 여시겠습니까?'))return;
+    openSheetsModal();return;
+  }
+  setLoading(true);
+  try{
+    if(type==='load'){
+      projects=await loadProjects();
+      allTasks=await loadTasks();
+      localStorage.setItem('pf_projects',JSON.stringify(projects));
+      syncBadge(true);
+      renderWorkerPanel('myTasks');
+      toast('✓ Sheets에서 최신 데이터를 불러왔습니다');
+    } else if(type==='save'){
+      await sheetsAction('save');
+    } else if(type==='merge'){
+      await sheetsAction('merge');
+      renderWorkerPanel('myTasks');
+    }
+  }catch(e){toast('오류: '+e.message);}
+  finally{setLoading(false);}
+}
 
 // ══ APP RENDER ══
 function renderApp(){
   document.getElementById('loginScreen').style.display='none';
   document.getElementById('appScreen').style.display='block';
-  // 상단 이름: 마스터 등록 이름(실명) > 구글 표시명 > 이메일 앞부분 순으로
   const displayName = currentUser.workerName || currentUser.name || currentUser.email.split('@')[0];
   document.getElementById('userName').textContent=displayName;
   const av=document.getElementById('userAvatar');
@@ -889,7 +1096,8 @@ function renderApp(){
   if(currentUser.role==='manager')renderManagerApp();else renderWorkerApp();
 }
 function renderManagerApp(){
-  document.getElementById('managerLayout').style.display='grid';document.getElementById('workerLayout').style.display='none';
+  document.getElementById('managerLayout').style.display='grid';
+  document.getElementById('workerLayout').style.display='none';
   document.getElementById('topNav').innerHTML=`
     <button class="nav-btn active" onclick="mNav('dashboard',this)">📊 대시보드</button>
     <button class="nav-btn" onclick="mNav('tasks',this)">📋 전체 작업</button>
@@ -957,6 +1165,10 @@ async function loadAndRender(role){
   }
   projects=await loadProjects();
   allTasks=await loadTasks();
+  // 로컬 캐시 갱신 (다음 오프라인 접속 대비)
+  if(isSynced()&&projects.length){
+    localStorage.setItem('pf_projects',JSON.stringify(projects));
+  }
   syncBadge(isSynced());
   if(role==='worker'){renderWorkerPanel('myTasks');}else{renderSidebar();renderMgr('dashboard');}
   setLoading(false);
@@ -2203,35 +2415,8 @@ async function submitWorkerSchedule(){
 
 // ══ D단계: Sheets 연동 설정 ══
 async function saveSheets(){
-  const url=document.getElementById('sheets-url').value.trim();
-  if(!url){toast('Sheets URL 또는 ID를 입력하세요');return;}
-  const m=url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-  const id=m?m[1]:url;
-
-  // 저장 버튼 로딩 표시
-  const btn=document.querySelector('#sheetsModal .btn-green');
-  if(btn){btn.textContent='연결 확인 중...';btn.disabled=true;}
-  setLoading(true);
-
-  localStorage.setItem('pf_sheets_id',id);
-
-  try{
-    // 실제 Sheets API 호출로 연동 테스트
-    await initSheetHeaders();
-    // 성공 — 조용히 토스트만
-    closeModal('sheetsModal');
-    syncBadge(true);
-    toast('✅ Google Sheets 연동 완료! 이제 모든 데이터가 Sheets에 저장됩니다.');
-  }catch(e){
-    // 실패 — 무엇이 문제인지 구체적으로 안내
-    localStorage.removeItem('pf_sheets_id');
-    syncBadge(false);
-    const errMsg = parseSheetError(e.message, id);
-    showSheetsError(errMsg, id);
-  }finally{
-    if(btn){btn.textContent='연동 저장';btn.disabled=false;}
-    setLoading(false);
-  }
+  // 새 방식으로 위임
+  await sheetsAction('save');
 }
 
 function parseSheetError(errMsg, sheetId){
@@ -2333,7 +2518,7 @@ function getWorkerMaster(){
   return JSON.parse(localStorage.getItem('pf_workers')||'[]');
 }
 function saveWorkerMaster(wm){
-  // 중복 제거 후 저장 (이메일 기준, 없으면 id 기준)
+  // 중복 제거 (이메일 기준, 없으면 id)
   const seen=new Set();
   const deduped=wm.filter(w=>{
     const key=(w.email||w.id||w.name).toLowerCase();
@@ -2342,11 +2527,27 @@ function saveWorkerMaster(wm){
   });
   localStorage.setItem('pf_workers',JSON.stringify(deduped));
   if(isSynced()){
-    // append 대신 clearAndWrite — 항상 최신 상태로 덮어씀
-    api('/api/sheets',{method:'POST',body:JSON.stringify({
-      action:'clearAndWrite', sheetName:'Workers',
-      values:deduped.map(w=>[w.id,w.name,w.role||'',w.type||'internal',w.email||'',w.skills||'',w.color||'',w.memo||'',w.createdAt||'',w.systemRole||'worker'])
-    })}).catch(()=>{});
+    // Sheets 현재 상태 읽고 병합 후 전체 교체
+    api('/api/sheets',{method:'POST',body:JSON.stringify({action:'read',sheetName:'Workers'})})
+      .then(r=>{
+        let sheetsRows=[];
+        if(r.values&&r.values.length>1){
+          const[,...rows]=r.values;
+          // 헤더행 제외, 현재 deduped에 없는 작업자만 기존 유지
+          sheetsRows=rows.filter(row=>
+            row[0]&&row[0]!=='id'&&
+            !deduped.find(w=>
+              (w.email&&row[4]&&w.email.toLowerCase()===row[4].toLowerCase())||
+              w.id===row[0]
+            )
+          );
+        }
+        const newRows=deduped.map(w=>[w.id,w.name,w.role||'',w.type||'internal',w.email||'',w.skills||'',w.color||'',w.memo||'',w.createdAt||'',w.systemRole||'worker']);
+        return api('/api/sheets',{method:'POST',body:JSON.stringify({
+          action:'clearAndWrite',sheetName:'Workers',
+          values:[...sheetsRows,...newRows]
+        })});
+      }).catch(()=>{});
   }
 }
 
