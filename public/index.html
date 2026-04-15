@@ -1452,15 +1452,23 @@ function ganttHTML(){
 function tasksHTML(){
   const fp=selectedPid||'all';const tasks=fp==='all'?allTasks:allTasks.filter(t=>t.projectId===fp);
   const sfSt=document.getElementById('sfSt')?.value||'all';
-  const filtered=tasks.filter(t=>sfSt==='all'||t.status===sfSt);
+  // 마감일 기준 오름차순 정렬 (미정은 맨 뒤)
+  const filtered=tasks
+    .filter(t=>sfSt==='all'||t.status===sfSt)
+    .sort((a,b)=>{
+      if(!a.end&&!b.end)return 0;
+      if(!a.end)return 1;
+      if(!b.end)return -1;
+      return new Date(a.end)-new Date(b.end);
+    });
 
-  // 세부공정 포함 총 행 수
   const totalWithSubs=filtered.reduce((acc,t)=>acc+1+(t.subtasks?.length||0),0);
+  const today=new Date();today.setHours(0,0,0,0);
 
   return`<div class="page-wrap">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
       <div class="page-hd" style="margin:0"><h1>전체 작업 <span style="font-size:14px;font-weight:400;color:var(--ink2)">(${filtered.length}건${totalWithSubs>filtered.length?`, 세부공정 포함 ${totalWithSubs}행`:''})</span></h1></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <select style="padding:6px 10px;border:1px solid var(--rule);border-radius:var(--radius);font-size:12.5px;font-family:inherit;outline:none;background:var(--paper);" onchange="selectedPid=this.value==='all'?null:this.value;renderMgr('tasks')">
           <option value="all">전체 프로젝트</option>${projects.map(p=>`<option value="${p.id}" ${p.id===selectedPid?'selected':''}>${p.name}</option>`).join('')}
         </select>
@@ -1468,6 +1476,7 @@ function tasksHTML(){
           <option value="all">전체 상태</option><option>시작 전</option><option>진행 중</option><option>검토 요청</option><option>완료</option><option>보류</option>
         </select>
         <button class="btn btn-sm" style="background:var(--green);color:white;" onclick="notifyAllSelected()">📧 선택 알림</button>
+        <button class="btn btn-sm" style="background:var(--accent);color:white;" onclick="deleteAllSelected()">🗑 선택 삭제</button>
       </div>
     </div>
     ${!filtered.length
@@ -1475,11 +1484,14 @@ function tasksHTML(){
       :`<div class="card"><div style="overflow-x:auto"><table class="task-table">
       <thead><tr>
         <th style="width:28px"><input type="checkbox" id="chkAll" onchange="toggleAllChk(this)"></th>
-        <th>프로젝트</th><th>카테고리</th><th>공정 / 세부공정</th><th>담당자</th><th>상태</th><th>마감</th><th>메모</th><th>액션</th>
+        <th>프로젝트</th><th>카테고리</th><th>공정 / 세부공정</th><th>담당자</th><th>상태</th><th>마감 ↑</th><th>메모</th><th>액션</th>
       </tr></thead>
       <tbody>${filtered.map(t=>{
         const subs=t.subtasks||[];
-        const mainRow=`<tr>
+        const dday=t.end?Math.ceil((new Date(t.end)-today)/86400000):null;
+        const ddayColor=dday!==null?(dday<0?'var(--accent)':dday<=3?'var(--yellow)':dday<=7?'var(--ink2)':'var(--ink3)'):'var(--ink3)';
+        const ddayTxt=dday===null?'-':dday<0?`D+${Math.abs(dday)}`:dday===0?'D-day':`D-${dday}`;
+        const mainRow=`<tr style="${dday!==null&&dday<0?'background:rgba(200,82,26,.03);':''}">
           <td><input type="checkbox" class="task-chk" data-key="${t.key}"></td>
           <td><span style="display:inline-flex;align-items:center;gap:4px"><span style="width:6px;height:6px;border-radius:50%;background:${t.projectColor||'#888'};flex-shrink:0"></span>${t.projectName}</span></td>
           <td><span class="cat-chip" style="background:${cc(t.cat).bg};color:${cc(t.cat).fg}">${t.cat||'-'}</span></td>
@@ -1496,14 +1508,16 @@ function tasksHTML(){
             </div>
           </td>
           <td><span class="status-badge ${sc(t.status)}" onclick="openTU('${t.key}')" style="cursor:pointer">${t.status}</span></td>
-          <td style="font-family:'DM Mono',monospace;font-size:11.5px;color:var(--ink2)">${t.end||'-'}</td>
+          <td>
+            <div style="font-family:'DM Mono',monospace;font-size:11.5px;color:var(--ink2);">${t.end||'-'}</div>
+            <div style="font-size:10.5px;font-weight:600;color:${ddayColor};">${ddayTxt}</div>
+          </td>
           <td style="font-size:12px;color:var(--ink2);max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.memo||''}</td>
           <td style="white-space:nowrap;">
             <button onclick="openTaskDetail('${t.key}')" style="padding:3px 8px;font-size:11px;border:1px solid var(--rule);border-radius:4px;background:transparent;cursor:pointer;" title="공정 편집">✏️</button>
             <button onclick="notifyWorker('${t.key}')" style="padding:3px 8px;font-size:11px;border:1px solid var(--green-lt);border-radius:4px;background:var(--green-lt);cursor:pointer;color:var(--green);" title="알림">📧</button>
           </td>
         </tr>`;
-        // 세부공정 행 (기본 숨김, 토글로 열림)
         const subRows=subs.length?`<tr id="tr-sub-${t.key}" style="display:none;">
           <td colspan="9" style="padding:0;">
             <table style="width:100%;border-collapse:collapse;">
@@ -1511,9 +1525,7 @@ function tasksHTML(){
                 <td style="width:28px;padding:5px 8px;"></td>
                 <td style="width:120px;padding:5px 8px;font-size:11.5px;color:var(--ink2)"></td>
                 <td style="width:80px;padding:5px 8px;font-size:11px;color:var(--ink3)">└ 세부</td>
-                <td style="padding:5px 8px;font-size:12.5px;">
-                  <span style="color:${cc(t.cat).fg};margin-right:5px;">└</span>${s.name||'세부공정 '+(si+1)}
-                </td>
+                <td style="padding:5px 8px;font-size:12.5px;"><span style="color:${cc(t.cat).fg};margin-right:5px;">└</span>${s.name||'세부공정 '+(si+1)}</td>
                 <td style="padding:5px 8px;font-size:12px;color:var(--ink2)">${s.worker||'-'}</td>
                 <td style="padding:5px 8px;"><span class="status-badge ${sc(s.status||'시작 전')}" onclick="openSubtaskDetail('${t.key}',${si})" style="cursor:pointer;font-size:10px;">${s.status||'시작 전'}</span></td>
                 <td style="padding:5px 8px;font-family:'DM Mono',monospace;font-size:11px;color:var(--ink2)">${s.end||'-'}</td>
@@ -1528,6 +1540,34 @@ function tasksHTML(){
       </tbody>
     </table></div></div>`}
   </div>`;
+}
+
+// 선택 공정 일괄 삭제
+async function deleteAllSelected(){
+  const checked=[...document.querySelectorAll('.task-chk:checked')].map(c=>c.dataset.key);
+  if(!checked.length){toast('삭제할 공정을 먼저 선택하세요');return;}
+  const names=checked.map(k=>allTasks.find(t=>t.key===k)?.task||k).join('\n  · ');
+  if(!confirm(`선택한 공정 ${checked.length}건을 삭제하시겠습니까?\n\n  · ${names}\n\n삭제된 공정은 복구할 수 없습니다.`))return;
+
+  // 메모리에서 제거
+  allTasks=allTasks.filter(t=>!checked.includes(t.key));
+
+  // localStorage 반영
+  const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');
+  ps.forEach(p=>{if(p.tasks)p.tasks=p.tasks.filter(t=>!checked.includes(t.key));});
+  localStorage.setItem('pf_projects',JSON.stringify(ps));
+
+  // Sheets 반영 (프로젝트별로 묶어서 업데이트)
+  if(isSynced()){
+    const affectedPids=[...new Set(checked.map(k=>{const t=allTasks.find(t=>t.key===k);return t?.projectId;}).filter(Boolean))];
+    // 남은 전체 Tasks를 Sheets에 다시 씀
+    const tRows=allTasks.map(t=>[t.id,t.projectId,t.projectName||'',t.projectColor||'',t.cat||'',t.task,t.worker||'',t.weight||'',t.start||'',t.end||'',t.status||'시작 전',t.memo||'',t.actualEnd||'',t.createdBy||'',t.updatedAt||'',t.workerEmail||'',Array.isArray(t.workers)?t.workers.join(','):(t.worker||''),t.workerRole||'',t.subtasks?JSON.stringify(t.subtasks):'']);
+    api('/api/sheets',{method:'POST',body:JSON.stringify({action:'clearAndWrite',sheetName:'Tasks',values:tRows})}).catch(()=>{});
+  }
+
+  toast(`✓ ${checked.length}개 공정 삭제됨`);
+  renderSidebar();
+  renderMgr('tasks');
 }
 
 // 전체작업 세부공정 행 토글
@@ -1605,57 +1645,75 @@ function workersHTML(){
     <!-- ② 프로젝트별 배치 현황 (드롭 타겟) -->
     <div>
       <h2 style="font-size:15px;font-weight:600;margin-bottom:10px;">📋 프로젝트별 인력 배치</h2>
-      ${projects.map(p=>{
+      ${projects.map((p,pi)=>{
         const pt=allTasks.filter(t=>t.projectId===p.id);
         const projWorkers=[...new Set(pt.map(t=>t.worker).filter(Boolean))];
+        // 첫 번째 프로젝트만 기본으로 열림, 나머지는 닫힘
+        const isOpen=pi===0;
         return`<div class="card" style="margin-bottom:12px;">
-          <div class="card-hd">
-            <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};margin-right:7px;vertical-align:middle;"></span>${p.name}</span>
+          <div class="card-hd" onclick="toggleProjectCard('pwrap-${p.id}')" style="cursor:pointer;user-select:none;">
+            <span>
+              <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};margin-right:7px;vertical-align:middle;"></span>
+              ${p.name}
+            </span>
             <div style="display:flex;gap:6px;align-items:center;">
               <span style="font-size:12px;font-weight:400;color:var(--ink2);">${projWorkers.length}명 배치 · ${pt.length}개 공정</span>
-              <button onclick="openEditProjectModal('${p.id}')" style="padding:2px 8px;font-size:11px;border:1px solid var(--rule);border-radius:4px;background:transparent;cursor:pointer;">공정 편집</button>
+              <button onclick="event.stopPropagation();openEditProjectModal('${p.id}')" style="padding:2px 8px;font-size:11px;border:1px solid var(--rule);border-radius:4px;background:transparent;cursor:pointer;">공정 편집</button>
+              <span id="pwrap-${p.id}-arrow" style="font-size:12px;color:var(--ink3);transition:transform .2s;display:inline-block;transform:rotate(${isOpen?180:0}deg);">▼</span>
             </div>
           </div>
-          <div class="card-body" style="padding:12px 16px;">
-            <!-- 드롭 영역 -->
-            <div id="drop-${p.id}"
-              ondragover="event.preventDefault();this.style.borderColor='var(--blue)'"
-              ondragleave="this.style.borderColor='var(--rule)'"
-              ondrop="dropWorkerToProject(event,'${p.id}')"
-              style="min-height:50px;border:2px dashed var(--rule);border-radius:8px;padding:8px 12px;margin-bottom:10px;transition:border-color .15s;display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
-              ${projWorkers.length
-                ? projWorkers.map(wName=>{
-                    const w=wm.find(x=>x.name===wName);
-                    const wt=pt.filter(t=>t.worker===wName);
-                    const done=wt.filter(t=>t.status==='완료').length;
-                    const pct=wt.length?Math.round(done/wt.length*100):0;
-                    return`<div onclick="openWorkerProjectDetail('${p.id}','${wName}')"
-                      style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:16px;border:1px solid ${w?.color||'var(--rule)'};background:white;cursor:pointer;transition:all .15s;"
-                      title="${wName} — ${wt.length}개 공정 담당">
-                      <div style="width:18px;height:18px;border-radius:5px;background:${w?.color||'var(--ink3)'};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:white;">${wName[0]}</div>
-                      <span style="font-size:12.5px;font-weight:500;">${wName}</span>
-                      <span style="font-size:11px;color:var(--ink2);">${pct}%</span>
-                    </div>`;
-                  }).join('')
-                : `<span style="color:var(--ink3);font-size:12.5px;">← 인력 풀에서 작업자를 드래그하여 배치</span>`
-              }
+          <div id="pwrap-${p.id}" style="display:${isOpen?'block':'none'};">
+            <div class="card-body" style="padding:12px 16px;">
+              <!-- 드롭 영역 -->
+              <div id="drop-${p.id}"
+                ondragover="event.preventDefault();this.style.borderColor='var(--blue)'"
+                ondragleave="this.style.borderColor='var(--rule)'"
+                ondrop="dropWorkerToProject(event,'${p.id}')"
+                style="min-height:50px;border:2px dashed var(--rule);border-radius:8px;padding:8px 12px;margin-bottom:10px;transition:border-color .15s;display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+                ${projWorkers.length
+                  ? projWorkers.map(wName=>{
+                      const w=wm.find(x=>x.name===wName);
+                      const wt=pt.filter(t=>t.worker===wName);
+                      const done=wt.filter(t=>t.status==='완료').length;
+                      const pct=wt.length?Math.round(done/wt.length*100):0;
+                      return`<div onclick="openWorkerProjectDetail('${p.id}','${wName}')"
+                        style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:16px;border:1px solid ${w?.color||'var(--rule)'};background:white;cursor:pointer;transition:all .15s;"
+                        title="${wName} — ${wt.length}개 공정 담당">
+                        <div style="width:18px;height:18px;border-radius:5px;background:${w?.color||'var(--ink3)'};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:white;">${wName[0]}</div>
+                        <span style="font-size:12.5px;font-weight:500;">${wName}</span>
+                        <span style="font-size:11px;color:var(--ink2);">${pct}%</span>
+                      </div>`;
+                    }).join('')
+                  : `<span style="color:var(--ink3);font-size:12.5px;">← 인력 풀에서 작업자를 드래그하여 배치</span>`
+                }
+              </div>
+              <!-- 공정별 배치 상세 -->
+              ${pt.length?`<div style="font-size:12px;">
+                ${pt.map(t=>`
+                  <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid rgba(226,223,216,.4);">
+                    <span class="cat-chip" style="background:${cc(t.cat).bg};color:${cc(t.cat).fg};font-size:10.5px;">${t.cat||'-'}</span>
+                    <span style="flex:1;font-size:12.5px;">${t.task}</span>
+                    <span style="color:${t.worker?'var(--ink2)':'var(--ink3)'};font-size:12px;">${t.worker||'미배치'}</span>
+                    <span class="status-badge ${sc(t.status)}" style="font-size:10px;padding:1px 6px;">${t.status}</span>
+                    <button onclick="openAssignWorker('${t.key}')" style="padding:1px 6px;font-size:10.5px;border:1px solid var(--rule);border-radius:3px;background:transparent;cursor:pointer;color:var(--blue);">배치</button>
+                  </div>`).join('')}
+              </div>`:''}
             </div>
-            <!-- 공정별 배치 상세 -->
-            ${pt.length?`<div style="font-size:12px;">
-              ${pt.map(t=>`
-                <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid rgba(226,223,216,.4);">
-                  <span class="cat-chip" style="background:${cc(t.cat).bg};color:${cc(t.cat).fg};font-size:10.5px;">${t.cat||'-'}</span>
-                  <span style="flex:1;font-size:12.5px;">${t.task}</span>
-                  <span style="color:${t.worker?'var(--ink2)':'var(--ink3)'};font-size:12px;">${t.worker||'미배치'}</span>
-                  <span class="status-badge ${sc(t.status)}" style="font-size:10px;padding:1px 6px;">${t.status}</span>
-                  <button onclick="openAssignWorker('${t.key}')" style="padding:1px 6px;font-size:10.5px;border:1px solid var(--rule);border-radius:3px;background:transparent;cursor:pointer;color:var(--blue);">배치</button>
-                </div>`).join('')}
-            </div>`:''}
           </div>
         </div>`;
       }).join('')||`<div style="color:var(--ink3);font-size:13px;padding:20px;text-align:center;">프로젝트가 없습니다</div>`}
     </div>
   </div>`;
+}
+
+// 작업자 탭 프로젝트 카드 접기/펼치기
+function toggleProjectCard(wrapId){
+  const wrap=document.getElementById(wrapId);
+  if(!wrap)return;
+  const arrow=document.getElementById(wrapId+'-arrow');
+  const isOpen=wrap.style.display!=='none';
+  wrap.style.display=isOpen?'none':'block';
+  if(arrow)arrow.style.transform=isOpen?'rotate(0deg)':'rotate(180deg)';
 }
 
 // ══ 인력풀 작업자 삭제 ══
