@@ -102,12 +102,42 @@ export default async function handler(req, res) {
       return res.status(200).json(data);
 
     } else if (action === 'getSheetInfo') {
-      // 스프레드시트 메타데이터 조회
+      // 스프레드시트 메타데이터 조회 (현재 탭 목록 포함)
       const resp = await fetch(baseUrl, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
       const data = await resp.json();
       return res.status(200).json(data);
+
+    } else if (action === 'createSheets') {
+      // 시트 탭이 없으면 생성 — requests: [{title:'Projects'}, ...]
+      // 1) 현재 시트 목록 조회
+      const infoResp = await fetch(baseUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      const info = await infoResp.json();
+      const existingTitles = (info.sheets || []).map(s => s.properties.title);
+
+      // 2) 없는 탭만 생성
+      const toCreate = (values || []).filter(t => !existingTitles.includes(t));
+      if (!toCreate.length) {
+        return res.status(200).json({ created: [], existing: existingTitles });
+      }
+
+      const requests = toCreate.map(title => ({
+        addSheet: { properties: { title } }
+      }));
+
+      const resp = await fetch(`${baseUrl}:batchUpdate`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ requests }),
+      });
+      const data = await resp.json();
+      return res.status(200).json({ created: toCreate, result: data });
     }
 
     return res.status(400).json({ error: '알 수 없는 action: ' + action });
