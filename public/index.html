@@ -6,7 +6,7 @@
 <title>PROJECT FLOW</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap');
-:root{--bg:#f4f2ee;--paper:#faf9f6;--ink:#1a1814;--ink2:#6b6760;--ink3:#b0ada8;--rule:#e2dfd8;--accent:#c8521a;--alt:#f5e8e0;--blue:#1e5fa8;--blue-lt:#e3ecf7;--green:#2a7a4b;--green-lt:#e2f2e9;--yellow:#c89a1a;--yellow-lt:#fdf4d8;--purple:var(--accent);--purple-lt:#f0e8f8;--radius:6px;--shadow:0 1px 3px rgba(0,0,0,.08),0 4px 16px rgba(0,0,0,.05);--shadow-lg:0 8px 32px rgba(0,0,0,.12);}
+:root{--bg:#f4f2ee;--paper:#faf9f6;--ink:#1a1814;--ink2:#6b6760;--ink3:#b0ada8;--rule:#e2dfd8;--accent:#c8521a;--alt:#f5e8e0;--blue:#1e5fa8;--blue-lt:#e3ecf7;--green:#2a7a4b;--green-lt:#e2f2e9;--yellow:#c89a1a;--yellow-lt:#fdf4d8;--purple:#7c4ba0;--purple-lt:#f0e8f8;--radius:6px;--shadow:0 1px 3px rgba(0,0,0,.08),0 4px 16px rgba(0,0,0,.05);--shadow-lg:0 8px 32px rgba(0,0,0,.12);}
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;font-size:13.5px;}
 #loginScreen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;}
@@ -1389,9 +1389,14 @@ function ganttHTML(){
   const pE = new Date(project.end);   pE.setHours(23,59,59,0);
 
   // 시작 주의 월요일부터
-  const gridStart = new Date(pS);
-  const dow = gridStart.getDay(); // 0=일
-  gridStart.setDate(gridStart.getDate() - (dow===0?6:dow-1)); // 월요일로
+  // gridStart: 오늘 -7일부터 시작 (프로젝트 시작일보다 이른 경우 프로젝트 시작일 사용)
+  const gridStart = new Date(today);
+  gridStart.setDate(gridStart.getDate() - 7);
+  // 월요일로 맞추기
+  const dow = gridStart.getDay();
+  gridStart.setDate(gridStart.getDate() - (dow===0?6:dow-1));
+  // 프로젝트 시작이 gridStart보다 이른 경우, 프로젝트 시작 기준으로 앞당김
+  if(pS < gridStart){ gridStart.setTime(pS.getTime()); const d2=gridStart.getDay(); gridStart.setDate(gridStart.getDate()-(d2===0?6:d2-1)); }
 
   // 주 배열 생성
   const weeks = [];
@@ -1426,7 +1431,7 @@ function ganttHTML(){
       const isToday=day.getTime()===today.getTime();
       const dateNum=day.getDate();
       const color=isToday?'var(--accent)':isHol||isSun?'#e03535':isSat?'#1e5fa8':'var(--ink2)';
-      return `<div style="width:${DAY_W}px;flex-shrink:0;text-align:center;font-size:9.5px;font-family:'DM Mono',monospace;${isToday?'background:var(--accent);color:white;font-weight:700;':'color:'+color+';'}border-bottom:${isToday?'2px solid rgba(0,0,0,.2)':''};border-right:1px solid ${d===4?'rgba(0,0,0,.12)':'var(--rule)'};padding:2px 0;line-height:1.3;">
+      return `<div style="width:${DAY_W}px;flex-shrink:0;text-align:center;font-size:9.5px;font-family:'DM Mono',monospace;${isToday?'background:#1565c0;color:white;font-weight:700;':'color:'+color+';'}border-bottom:${isToday?'2px solid rgba(0,0,0,.2)':''};border-right:1px solid ${d===4?'rgba(0,0,0,.12)':'var(--rule)'};padding:2px 0;line-height:1.3;">
         <div style="font-size:9px;opacity:${isToday?'.8':'.7'}">${dayNames[d]}</div>
         <div>${dateNum}</div>
         ${isToday?`<div style="font-size:7px;font-weight:800;letter-spacing:-.02em;opacity:.9;">TODAY</div>`:(isHol?`<div style="font-size:7px;color:#e03535">●</div>`:'')}
@@ -1573,7 +1578,7 @@ function ganttHTML(){
         <div style="font-size:12px;color:var(--ink2);">${project.pm||'PM 미지정'} · ${project.start} ~ ${project.end} · ${pTasks.length}개 공정</div>
         <button class="btn btn-sm btn-secondary" onclick="openEditProjectModal('${project.id}')">✏️ 편집</button>
         <button class="btn btn-sm" style="background:var(--accent);color:white;" onclick="openMarkerModal('${project.id}')">🔖 중요일정</button>
-        <button class="btn btn-sm" style="background:var(--purple);color:white;" onclick="openGanttComment('${project.id}')">💬 코멘트</button>
+        <button class="btn btn-sm" style="background:#7c4ba0;color:white;" onclick="openGanttComment('${project.id}')">💬 코멘트</button>
       </div>
     </div>
 
@@ -1603,8 +1608,8 @@ function ganttHTML(){
           </div>
           <!-- 바 영역 -->
           <div style="position:relative;">
-            ${showToday?`<div style="position:absolute;left:${todayX+DAY_W/2-1}px;top:0;bottom:0;width:2px;background:var(--accent);opacity:.7;z-index:10;pointer-events:none;"></div>
-              <div style="position:absolute;left:${todayX}px;top:0;bottom:0;width:${DAY_W}px;background:rgba(200,82,26,.06);z-index:0;pointer-events:none;"></div>`:''}
+            ${showToday?`<div style="position:absolute;left:${todayX+DAY_W/2-1}px;top:0;bottom:0;width:2px;background:#1565c0;opacity:.8;z-index:10;pointer-events:none;"></div>
+              <div style="position:absolute;left:${todayX}px;top:0;bottom:0;width:${DAY_W}px;background:rgba(21,101,192,.05);z-index:0;pointer-events:none;"></div>`:''}
             ${/* 중요일정 마커 오버레이 */ (project.markers||[]).filter(m=>m.date&&m.label).map(m=>{
               const mD=new Date(m.date);mD.setHours(0,0,0,0);
               const mX=Math.round((mD-gridStart)/86400000)*DAY_W+DAY_W/2;
@@ -2174,8 +2179,11 @@ function workerGanttHTML(mn){
   const DAY_W=32;
   const pS=new Date(project.start);pS.setHours(0,0,0,0);
   const pE=new Date(project.end);pE.setHours(23,59,59,0);
-  const gridStart=new Date(pS);
+  // gridStart: 오늘 -7일부터 시작
+  const gridStart=new Date(today);
+  gridStart.setDate(gridStart.getDate()-7);
   const dow=gridStart.getDay();gridStart.setDate(gridStart.getDate()-(dow===0?6:dow-1));
+  if(pS<gridStart){gridStart.setTime(pS.getTime());const d2=gridStart.getDay();gridStart.setDate(gridStart.getDate()-(d2===0?6:d2-1));}
   const weeks=[];let cur=new Date(gridStart);
   while(cur<=pE){weeks.push(new Date(cur));cur.setDate(cur.getDate()+7);}
   const today=new Date();today.setHours(0,0,0,0);
@@ -2190,7 +2198,7 @@ function workerGanttHTML(mn){
     const ds=dateStr(day);const isHol=KO_HOL.has(ds);
     const isSun=d===6,isSat=d===5,isToday=day.getTime()===today.getTime();
     const color=isToday?'var(--accent)':isHol||isSun?'#e03535':isSat?'#1e5fa8':'var(--ink2)';
-    return`<div style="width:${DAY_W}px;flex-shrink:0;text-align:center;font-size:9.5px;font-family:'DM Mono',monospace;${isToday?'background:var(--accent);color:white;font-weight:700;':'color:'+color+';'}border-right:1px solid ${d===4?'rgba(0,0,0,.12)':'var(--rule)'};padding:2px 0;line-height:1.3;">
+    return`<div style="width:${DAY_W}px;flex-shrink:0;text-align:center;font-size:9.5px;font-family:'DM Mono',monospace;${isToday?'background:#1565c0;color:white;font-weight:700;':'color:'+color+';'}border-right:1px solid ${d===4?'rgba(0,0,0,.12)':'var(--rule)'};padding:2px 0;line-height:1.3;">
       <div style="font-size:9px;opacity:${isToday?'.8':'.7'}">${dayNames[d]}</div><div>${day.getDate()}</div>${isToday?`<div style="font-size:7px;font-weight:800;opacity:.9;">TODAY</div>`:(isHol?`<div style="font-size:7px;color:#e03535">●</div>`:'')}
     </div>`;
   })).join('');
@@ -3204,7 +3212,7 @@ function buildGanttGrid(tasks, dateStart, dateEnd){
       const isHol=KO_HOLIDAYS.has(ds);const isSun=d===6;const isSat=d===5;
       const isToday=day.getTime()===today.getTime();const dateNum=day.getDate();
       const color=isToday?'var(--accent)':isHol||isSun?'#e03535':isSat?'#1e5fa8':'var(--ink2)';
-      return`<div style="width:${DAY_W}px;flex-shrink:0;text-align:center;font-size:9.5px;font-family:'DM Mono',monospace;${isToday?'background:var(--accent);color:white;font-weight:700;':'color:'+color+';'}border-right:1px solid ${d===4?'rgba(0,0,0,.12)':'var(--rule)'};padding:2px 0;line-height:1.3;">
+      return`<div style="width:${DAY_W}px;flex-shrink:0;text-align:center;font-size:9.5px;font-family:'DM Mono',monospace;${isToday?'background:#1565c0;color:white;font-weight:700;':'color:'+color+';'}border-right:1px solid ${d===4?'rgba(0,0,0,.12)':'var(--rule)'};padding:2px 0;line-height:1.3;">
         <div style="font-size:9px;opacity:${isToday?'.8':'.7'}">${dayNames[d]}</div>
         <div>${dateNum}</div>
         ${isToday?`<div style="font-size:7px;font-weight:800;opacity:.9;">TODAY</div>`:(isHol?`<div style="font-size:7px;color:#e03535">●</div>`:'')}
