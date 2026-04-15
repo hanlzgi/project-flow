@@ -711,7 +711,16 @@ function checkSession(){
 
 // ══ DATA LAYER — Sheets 우선, 로컬 폴백 ══
 async function loadProjects(){
-  if(isSynced()){try{const r=await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'read',sheetName:'Projects'})});if(r.values&&r.values.length>1){const[,,...rows]=r.values;return rows.filter(r=>r[0]).map(r=>({id:r[0],name:r[1],client:r[2],pm:r[3],lead:r[4],start:r[5],end:r[6],desc:r[7],color:r[8]||PC[0],createdAt:r[9],createdBy:r[10]}));}}catch(e){console.warn('Sheets read fail',e.message);}}
+  if(isSynced()){
+    try{
+      const r=await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'read',sheetName:'Projects'})});
+      if(r.values&&r.values.length>1){
+        const[,...rows]=r.values;
+        const parsed=rows.filter(r=>r[0]).map(r=>({id:r[0],name:r[1],client:r[2],pm:r[3],lead:r[4],start:r[5],end:r[6],desc:r[7],color:r[8]||PC[0],createdAt:r[9],createdBy:r[10]}));
+        if(parsed.length) return parsed;
+      }
+    }catch(e){console.warn('Sheets loadProjects fail',e.message);}
+  }
   return JSON.parse(localStorage.getItem('pf_projects')||'[]');
 }
 
