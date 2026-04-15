@@ -317,6 +317,42 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
   </div>
 </div>
 
+<!-- 작업자 지정 모달 -->
+<div class="modal-overlay" id="assignModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('assignModal')">×</button>
+    <h3>👤 작업자 지정</h3>
+    <div style="background:var(--bg);border-radius:6px;padding:10px 12px;margin-bottom:14px;font-size:13px;">
+      <strong id="assignTitle">작업명</strong>
+      <span style="margin-left:8px;font-size:12px;color:var(--ink2)">현재: <span id="assignCurrentWorker" style="color:var(--accent)">미지정</span></span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <div class="form-group">
+        <label class="form-label">작업자 선택</label>
+        <select class="form-select" id="assignWorkerSelect" onchange="toggleAssignCustom(this)">
+          <option value="">선택...</option>
+        </select>
+      </div>
+      <div class="form-group" id="assignCustomWrap" style="display:none;">
+        <label class="form-label">직접 입력 (이름)</label>
+        <input class="form-input" id="assignCustomName" placeholder="이름 입력">
+      </div>
+      <div class="form-group" id="assignEmailWrap" style="display:none;">
+        <label class="form-label">이메일 (알림용)</label>
+        <input class="form-input" id="assignEmail" type="email" placeholder="worker@company.com">
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:10px;background:var(--green-lt);border-radius:6px;border:1px solid rgba(42,122,75,.2);">
+        <input type="checkbox" id="assignNotify" checked>
+        <span style="color:var(--green);font-weight:500;">📧 배정 즉시 이메일 알림 발송</span>
+      </label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('assignModal')">취소</button>
+      <button class="btn btn-primary" onclick="submitAssignWorker()">배정 저장</button>
+    </div>
+  </div>
+</div>
+
 <!-- 작업자 일정 등록 모달 -->
 <div class="modal-overlay" id="workerScheduleModal">
   <div class="modal wide">
@@ -397,9 +433,17 @@ async function loadProjects(){
   return JSON.parse(localStorage.getItem('pf_projects')||'[]');
 }
 async function loadTasks(){
-  if(isSynced()){try{const r=await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'read',sheetName:'Tasks'})});if(r.values&&r.values.length>1){const[,,...rows]=r.values;return rows.filter(r=>r[0]).map(r=>({id:r[0],projectId:r[1],projectName:r[2],projectColor:r[3],cat:r[4],task:r[5],worker:r[6],weight:r[7],start:r[8],end:r[9],status:r[10]||'시작 전',memo:r[11],actualEnd:r[12],createdBy:r[13],updatedAt:r[14],key:r[0]}));}}catch(e){console.warn('Sheets read fail',e.message);}}
-  const sm=JSON.parse(localStorage.getItem('pf_task_status')||'{}');const tasks=[];
-  for(const p of projects)for(const t of(p.tasks||[])){const k=`${p.id}_${t.task}_${t.worker}`;tasks.push({...t,projectId:p.id,projectName:p.name,projectColor:p.color,status:sm[k]?.status||'시작 전',memo:sm[k]?.memo||'',actualEnd:sm[k]?.actualEnd||'',key:k});}
+  if(isSynced()){try{const r=await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'read',sheetName:'Tasks'})});if(r.values&&r.values.length>1){const[,...rows]=r.values;return rows.filter(r=>r[0]).map(r=>({id:r[0],projectId:r[1],projectName:r[2],projectColor:r[3]||'#888',cat:r[4]||'기타',task:r[5],worker:r[6],weight:r[7],start:r[8],end:r[9],status:r[10]||'시작 전',memo:r[11]||'',actualEnd:r[12]||'',createdBy:r[13]||'',updatedAt:r[14]||'',key:r[0]}));}}catch(e){console.warn('Sheets read fail',e.message);}}
+  // 로컬 폴백 — projects 전역 변수가 이미 로드된 상태여야 함
+  const localProjects = JSON.parse(localStorage.getItem('pf_projects')||'[]');
+  const sm=JSON.parse(localStorage.getItem('pf_task_status')||'{}');
+  const tasks=[];
+  for(const p of localProjects){
+    for(const t of(p.tasks||[])){
+      const k=t.key||`${p.id}_${t.task}_${t.worker}`;
+      tasks.push({...t,projectId:p.id,projectName:p.name,projectColor:p.color||'#888',status:sm[k]?.status||t.status||'시작 전',memo:sm[k]?.memo||t.memo||'',actualEnd:sm[k]?.actualEnd||t.actualEnd||'',key:k});
+    }
+  }
   return tasks;
 }
 async function saveProject(p){
@@ -409,9 +453,17 @@ async function saveProject(p){
 }
 async function saveTasks(pid,tasks){
   const p=projects.find(x=>x.id===pid);
-  const rows=tasks.map(t=>[t.id||`${pid}_${Date.now()}_${Math.random().toString(36).slice(2,5)}`,pid,p?.name||'',p?.color||'',t.cat,t.task,t.worker,t.weight,t.start,t.end,t.status||'시작 전',t.memo||'',t.actualEnd||'',currentUser?.email||'',new Date().toISOString()]);
-  if(isSynced()){try{await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'append',sheetName:'Tasks',values:rows})});return;}catch(e){console.warn(e.message);}}
-  const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');const proj=ps.find(x=>x.id===pid);if(proj){proj.tasks=tasks;localStorage.setItem('pf_projects',JSON.stringify(ps));}
+  // 각 task에 id와 key 부여
+  const tasksWithKey=tasks.map(t=>{
+    const id=t.id||`${pid}_${Date.now()}_${Math.random().toString(36).slice(2,5)}`;
+    return {...t,id,key:t.key||id};
+  });
+  const rows=tasksWithKey.map(t=>[t.id,pid,p?.name||'',p?.color||'',t.cat||'기타',t.task,t.worker||'',t.weight||'',t.start||'',t.end||'',t.status||'시작 전',t.memo||'',t.actualEnd||'',currentUser?.email||'',new Date().toISOString()]);
+  if(isSynced()){try{await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'append',sheetName:'Tasks',values:rows})});return tasksWithKey;}catch(e){console.warn(e.message);}}
+  // 로컬 저장 — project.tasks에 key 포함하여 저장
+  const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');const proj=ps.find(x=>x.id===pid);
+  if(proj){proj.tasks=tasksWithKey;localStorage.setItem('pf_projects',JSON.stringify(ps));}
+  return tasksWithKey;
 }
 async function updateStatus(key,upd){
   if(isSynced()){try{await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'append',sheetName:'TaskUpdates',values:[[new Date().toISOString(),currentUser?.email||'',key,upd.status,upd.memo||'',upd.actualEnd||'']]})});}catch(e){console.warn(e.message);}}
@@ -479,11 +531,28 @@ function dashHTML(){
 function ganttHTML(){
   const project=(selectedPid?projects.find(p=>p.id===selectedPid):null)||projects[0];
   if(!project)return`<div class="page-wrap"><div class="empty-state"><div class="ei">📅</div><p>프로젝트를 선택하거나 등록하세요</p><br><button class="btn btn-primary" onclick="openNewProjectModal()">＋ 새 프로젝트</button></div></div>`;
+  const pTasks=allTasks.filter(t=>t.projectId===project.id);
+  if(!pTasks.length)return`<div class="page-wrap">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <div><div style="font-size:16px;font-weight:600">${project.name}</div><div style="font-size:12px;color:var(--ink2)">${project.pm||''} · ${project.start} ~ ${project.end}</div></div>
+      <select style="padding:5px 10px;border:1px solid var(--rule);border-radius:var(--radius);font-size:12.5px;font-family:inherit;outline:none;background:var(--paper);" onchange="selectedPid=this.value;renderMgr('gantt')">
+        ${projects.map(p=>`<option value="${p.id}" ${p.id===project.id?'selected':''}>${p.name}</option>`).join('')}
+      </select>
+    </div>
+    <div class="empty-state" style="background:var(--paper);border:1px solid var(--rule);border-radius:10px;padding:40px;">
+      <div class="ei">🗂</div>
+      <p>이 프로젝트에 등록된 작업이 없습니다<br><small style="color:var(--ink3)">프로젝트 편집에서 작업 목록을 추가하거나, 작업자에게 일정 등록을 요청하세요</small></p>
+      <div style="display:flex;gap:8px;justify-content:center;margin-top:16px;">
+        <button class="btn btn-primary" onclick="openEditProjectModal('${project.id}')">✏️ 작업 추가</button>
+      </div>
+    </div>
+  </div>`;
+
   const pS=new Date(project.start),pE=new Date(project.end),WW=54;
   const wks=[];let cur=new Date(pS);cur.setDate(cur.getDate()-cur.getDay());while(cur<=pE){wks.push(new Date(cur));cur.setDate(cur.getDate()+7);}
-  const tw=wks.length*WW;const mos={};wks.forEach((w,i)=>{const m=`${w.getFullYear()}.${String(w.getMonth()+1).padStart(2,'0')}`;if(!mos[m])mos[m]={c:0};mos[m].c++;});
+  const tw=wks.length*WW;const mos={};wks.forEach(w=>{const m=`${w.getFullYear()}.${String(w.getMonth()+1).padStart(2,'0')}`;if(!mos[m])mos[m]={c:0};mos[m].c++;});
   const today=new Date();today.setHours(0,0,0,0);const tpx=(today-pS)/86400000/7*WW;const showT=today>=pS&&today<=pE;
-  const cm={};allTasks.filter(t=>t.projectId===project.id).forEach(t=>{if(!cm[t.cat])cm[t.cat]=[];cm[t.cat].push(t);});
+  const cm={};pTasks.forEach(t=>{if(!cm[t.cat])cm[t.cat]=[];cm[t.cat].push(t);});
   let lH='',rH='';
   Object.entries(cm).forEach(([cat,tasks])=>{
     const c=cc(cat);
@@ -491,20 +560,33 @@ function ganttHTML(){
     rH+=`<div class="t-cat" style="width:${tw}px;background:${c.bg}20"></div>`;
     tasks.forEach(t=>{
       const s=new Date(t.start||project.start),e=new Date(t.end||project.end);
-      const lx=Math.max(0,(s-pS)/86400000/7*WW),wx=Math.max(4,(e-s)/86400000/7*WW);
-      lH+=`<div class="g-row"><span class="g-name">${t.task}</span><span class="g-worker">${t.worker||'-'}</span><span class="status-badge ${sc(t.status)}" style="font-size:10px">${t.status}</span></div>`;
-      rH+=`<div class="t-row" style="width:${tw}px">${wks.map((_,i)=>`<div class="wgl" style="left:${i*WW}px"></div>`).join('')}<div class="g-bar" style="left:${lx}px;width:${wx}px;background:${c.fg}" title="${t.task} · ${t.worker}">${wx>50?t.task:''}</div></div>`;
+      const lx=Math.max(0,(s-pS)/86400000/7*WW),wx=Math.max(6,(e-s+86400000)/86400000/7*WW);
+      const hasMemo=t.memo?'🗨':'';
+      lH+=`<div class="g-row" onclick="openTaskDetail('${t.key}')" style="cursor:pointer;">
+        <span class="g-name">${t.task}</span>
+        <span class="g-worker">${t.worker||'-'}</span>
+        <span class="status-badge ${sc(t.status)}" style="font-size:10px">${t.status}</span>
+        ${hasMemo?`<span style="font-size:11px;color:var(--purple)">${hasMemo}</span>`:''}
+      </div>`;
+      rH+=`<div class="t-row" style="width:${tw}px">${wks.map((_,i)=>`<div class="wgl" style="left:${i*WW}px"></div>`).join('')}<div class="g-bar" onclick="openTaskDetail('${t.key}')" style="left:${lx}px;width:${wx}px;background:${c.fg}" title="${t.task} · ${t.worker} · ${t.status}">${wx>50?t.task:''}</div></div>`;
     });
   });
-  return `<div class="page-wrap">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
-      <div><div style="font-size:16px;font-weight:600">${project.name}</div><div style="font-size:12px;color:var(--ink2)">${project.pm||''} · ${project.start} ~ ${project.end}</div></div>
-      <select style="padding:5px 10px;border:1px solid var(--rule);border-radius:var(--radius);font-size:12.5px;font-family:inherit;outline:none;background:var(--paper);" onchange="selectedPid=this.value;renderMgr('gantt')">
-        ${projects.map(p=>`<option value="${p.id}" ${p.id===project.id?'selected':''}>${p.name}</option>`).join('')}
-      </select>
+  return `<div class="page-wrap" style="padding-bottom:0;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+      <div>
+        <div style="font-size:16px;font-weight:600">${project.name}</div>
+        <div style="font-size:12px;color:var(--ink2)">${project.pm||'PM 미지정'} · ${project.start} ~ ${project.end} · 작업 ${pTasks.length}개</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <select style="padding:5px 10px;border:1px solid var(--rule);border-radius:var(--radius);font-size:12.5px;font-family:inherit;outline:none;background:var(--paper);" onchange="selectedPid=this.value;renderMgr('gantt')">
+          ${projects.map(p=>`<option value="${p.id}" ${p.id===project.id?'selected':''}>${p.name}</option>`).join('')}
+        </select>
+        <button class="btn btn-sm btn-secondary" onclick="openEditProjectModal('${project.id}')">✏️ 편집</button>
+        <button class="btn btn-sm" style="background:var(--purple);color:white;" onclick="openGanttComment('${project.id}')">💬 코멘트</button>
+      </div>
     </div>
     <div class="gantt-outer"><div class="gantt-container"><div class="gantt-table">
-      <div class="gantt-left"><div class="g-col-hd">작업</div>${lH}</div>
+      <div class="gantt-left"><div class="g-col-hd">작업 (클릭: 상세/편집)</div>${lH}</div>
       <div class="gantt-right">
         <div class="tl-hd"><div style="display:flex;flex-direction:column;">
           <div style="display:flex;">${Object.entries(mos).map(([m,v])=>`<div class="mo-lbl" style="width:${v.c*WW}px">${m}</div>`).join('')}</div>
@@ -513,6 +595,19 @@ function ganttHTML(){
         <div style="position:relative;">${showT?`<div class="today-line" style="left:${tpx}px"></div>`:''}${rH}</div>
       </div>
     </div></div></div>
+    <!-- 프로젝트 코멘트 섹션 -->
+    <div id="ganttCommentPanel" style="display:none;padding:16px 0 24px;">
+      <div class="card">
+        <div class="card-hd">💬 관리자 코멘트 — ${project.name}</div>
+        <div class="card-body">
+          <div id="commentList" style="max-height:200px;overflow-y:auto;margin-bottom:12px;"></div>
+          <div style="display:flex;gap:8px;">
+            <input id="commentInput" class="form-input" style="flex:1;" placeholder="작업 조정 사항, 메모, 지시사항 등...">
+            <button class="btn btn-primary btn-sm" onclick="addGanttComment('${project.id}')">등록</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -520,31 +615,45 @@ function tasksHTML(){
   const fp=selectedPid||'all';const tasks=fp==='all'?allTasks:allTasks.filter(t=>t.projectId===fp);
   return`<div class="page-wrap">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
-      <div class="page-hd" style="margin:0"><h1>전체 작업</h1></div>
-      <div style="display:flex;gap:8px;">
+      <div class="page-hd" style="margin:0"><h1>전체 작업 <span style="font-size:14px;font-weight:400;color:var(--ink2)">(${tasks.length}건)</span></h1></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <select style="padding:6px 10px;border:1px solid var(--rule);border-radius:var(--radius);font-size:12.5px;font-family:inherit;outline:none;background:var(--paper);" onchange="selectedPid=this.value==='all'?null:this.value;renderMgr('tasks')">
           <option value="all">전체 프로젝트</option>${projects.map(p=>`<option value="${p.id}" ${p.id===selectedPid?'selected':''}>${p.name}</option>`).join('')}
         </select>
         <select id="sfSt" style="padding:6px 10px;border:1px solid var(--rule);border-radius:var(--radius);font-size:12.5px;font-family:inherit;outline:none;background:var(--paper);" onchange="renderMgr('tasks')">
           <option value="all">전체 상태</option><option>시작 전</option><option>진행 중</option><option>검토 요청</option><option>완료</option><option>보류</option>
         </select>
+        <button class="btn btn-sm" style="background:var(--green);color:white;" onclick="notifyAllSelected()">📧 선택 알림</button>
       </div>
     </div>
+    ${!tasks.length?`<div class="empty-state" style="background:var(--paper);border:1px solid var(--rule);border-radius:10px;padding:40px;"><div class="ei">📋</div><p>작업이 없습니다<br><small style="color:var(--ink3)">새 프로젝트를 등록하고 작업 목록을 추가하세요</small></p><br><button class="btn btn-primary" onclick="openNewProjectModal()">＋ 새 프로젝트</button></div>`:`
     <div class="card"><div style="overflow-x:auto"><table class="task-table">
-      <thead><tr><th>프로젝트</th><th>카테고리</th><th>작업</th><th>담당자</th><th>상태</th><th>마감</th><th>메모</th><th>등록자</th></tr></thead>
+      <thead><tr>
+        <th style="width:28px"><input type="checkbox" id="chkAll" onchange="toggleAllChk(this)"></th>
+        <th>프로젝트</th><th>카테고리</th><th>작업</th><th>담당자</th><th>상태</th><th>마감</th><th>메모</th><th>액션</th>
+      </tr></thead>
       <tbody>${tasks.filter(t=>{const sf=document.getElementById('sfSt')?.value||'all';return sf==='all'||t.status===sf;}).map(t=>`
         <tr>
+          <td><input type="checkbox" class="task-chk" data-key="${t.key}"></td>
           <td><span style="display:inline-flex;align-items:center;gap:4px"><span style="width:6px;height:6px;border-radius:50%;background:${t.projectColor||'#888'};flex-shrink:0"></span>${t.projectName}</span></td>
-          <td><span class="cat-chip" style="background:${cc(t.cat).bg};color:${cc(t.cat).fg}">${t.cat}</span></td>
+          <td><span class="cat-chip" style="background:${cc(t.cat).bg};color:${cc(t.cat).fg}">${t.cat||'-'}</span></td>
           <td style="font-weight:500">${t.task}</td>
-          <td>${t.worker||'-'}</td>
+          <td>
+            <div style="display:flex;align-items:center;gap:4px;">
+              <span style="font-size:12.5px">${t.worker||'<span style="color:var(--ink3)">미지정</span>'}</span>
+              <button onclick="openAssignWorker('${t.key}')" style="padding:2px 6px;font-size:10.5px;border:1px solid var(--rule);border-radius:4px;background:transparent;cursor:pointer;color:var(--blue);" title="작업자 지정">👤</button>
+            </div>
+          </td>
           <td><span class="status-badge ${sc(t.status)}" onclick="openTU('${t.key}')" style="cursor:pointer">${t.status}</span></td>
           <td style="font-family:'DM Mono',monospace;font-size:11.5px;color:var(--ink2)">${t.end||'-'}</td>
           <td style="font-size:12px;color:var(--ink2);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.memo||''}</td>
-          <td style="font-size:11.5px;color:var(--ink3)">${t.createdBy||'-'}</td>
+          <td style="white-space:nowrap;">
+            <button onclick="openTU('${t.key}')" style="padding:3px 8px;font-size:11px;border:1px solid var(--rule);border-radius:4px;background:transparent;cursor:pointer;" title="상태 변경">✏️</button>
+            <button onclick="notifyWorker('${t.key}')" style="padding:3px 8px;font-size:11px;border:1px solid var(--green-lt);border-radius:4px;background:var(--green-lt);cursor:pointer;color:var(--green);" title="담당자에게 알림">📧</button>
+          </td>
         </tr>`).join('')}
       </tbody>
-    </table></div></div>
+    </table></div></div>`}
   </div>`;
 }
 
@@ -755,6 +864,168 @@ async function initSheetHeaders(){
     await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'append',sheetName:'TaskUpdates',values:[['updatedAt','updatedBy','taskKey','status','memo','actualEnd']]})});
     toast('✓ Sheets 초기 구조 생성됨');
   }catch(e){console.warn(e.message);}
+}
+
+// ══ 공정표 코멘트 ══
+function openGanttComment(pid){
+  const panel=document.getElementById('ganttCommentPanel');
+  if(!panel)return;
+  const isOpen=panel.style.display!=='none';
+  panel.style.display=isOpen?'none':'block';
+  if(!isOpen)renderComments(pid);
+}
+function renderComments(pid){
+  const list=document.getElementById('commentList');if(!list)return;
+  const comments=JSON.parse(localStorage.getItem(`pf_comments_${pid}`)||'[]');
+  if(!comments.length){list.innerHTML=`<div style="color:var(--ink3);font-size:12.5px;text-align:center;padding:12px;">아직 코멘트가 없습니다</div>`;return;}
+  list.innerHTML=comments.map(c=>`
+    <div style="padding:8px 10px;border-radius:6px;background:var(--bg);margin-bottom:6px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;">
+        <span style="font-weight:600;font-size:12px">${c.author}</span>
+        <span style="font-size:10.5px;color:var(--ink3);font-family:'DM Mono',monospace">${new Date(c.ts).toLocaleString('ko-KR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
+        ${c.taskName?`<span class="cat-chip" style="background:var(--blue-lt);color:var(--blue);font-size:10px">${c.taskName}</span>`:''}
+      </div>
+      <div style="font-size:13px;line-height:1.5">${c.text}</div>
+    </div>`).join('');
+  list.scrollTop=list.scrollHeight;
+}
+function addGanttComment(pid){
+  const inp=document.getElementById('commentInput');if(!inp||!inp.value.trim())return;
+  const comments=JSON.parse(localStorage.getItem(`pf_comments_${pid}`)||'[]');
+  comments.push({id:Date.now(),pid,author:currentUser?.name||currentUser?.email||'관리자',text:inp.value.trim(),ts:new Date().toISOString()});
+  localStorage.setItem(`pf_comments_${pid}`,JSON.stringify(comments));
+  inp.value='';renderComments(pid);toast('✓ 코멘트 등록됨');
+}
+
+// ══ 작업자 지정 모달 ══
+let _assignKey='';
+function openAssignWorker(key){
+  _assignKey=key;
+  const t=allTasks.find(t=>t.key===key);if(!t)return;
+  // 작업자 목록 수집 (기존 works 기반)
+  const workers=[...new Set(allTasks.map(t=>t.worker).filter(Boolean))];
+  document.getElementById('assignTitle').textContent=t.task;
+  document.getElementById('assignCurrentWorker').textContent=t.worker||'미지정';
+  const sel=document.getElementById('assignWorkerSelect');
+  sel.innerHTML=`<option value="">선택...</option>${workers.map(w=>`<option value="${w}" ${w===t.worker?'selected':''}>${w}</option>`).join('')}<option value="__custom__">+ 직접 입력</option>`;
+  document.getElementById('assignCustomWrap').style.display='none';
+  document.getElementById('assignEmailWrap').style.display='none';
+  document.getElementById('assignEmail').value=t.workerEmail||'';
+  openModal('assignModal');
+}
+function toggleAssignCustom(sel){
+  document.getElementById('assignCustomWrap').style.display=sel.value==='__custom__'?'block':'none';
+  document.getElementById('assignEmailWrap').style.display=sel.value?'block':'none';
+}
+async function submitAssignWorker(){
+  const sel=document.getElementById('assignWorkerSelect');
+  const custom=document.getElementById('assignCustomName').value.trim();
+  const workerName=sel.value==='__custom__'?custom:sel.value;
+  const workerEmail=document.getElementById('assignEmail').value.trim();
+  const sendNotify=document.getElementById('assignNotify').checked;
+  if(!workerName){toast('작업자를 선택하거나 입력하세요');return;}
+  // allTasks에서 해당 task 업데이트
+  const t=allTasks.find(t=>t.key===_assignKey);
+  if(t){t.worker=workerName;t.workerEmail=workerEmail;}
+  // 로컬 저장소 업데이트
+  const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');
+  const proj=ps.find(p=>p.id===t?.projectId);
+  if(proj&&proj.tasks){
+    const pt=proj.tasks.find(pt=>pt.key===_assignKey||pt.task===t?.task);
+    if(pt){pt.worker=workerName;pt.workerEmail=workerEmail;}
+    localStorage.setItem('pf_projects',JSON.stringify(ps));
+  }
+  closeModal('assignModal');
+  toast(`✓ ${workerName}님에게 배정됨`);
+  // 알림 이메일 발송
+  if(sendNotify&&workerEmail&&workerEmail.includes('@')){
+    await sendWorkerNotifyEmail(t,workerName,workerEmail);
+  }
+  renderMgr('tasks');
+}
+
+// ══ 알림 이메일 (Gmail MCP) ══
+async function notifyWorker(key){
+  const t=allTasks.find(t=>t.key===key);if(!t)return;
+  if(!t.worker){toast('작업자를 먼저 지정하세요');openAssignWorker(key);return;}
+  if(!t.workerEmail||!t.workerEmail.includes('@')){
+    toast('작업자 이메일이 없습니다. 작업자 지정에서 이메일을 등록하세요.');
+    openAssignWorker(key);return;
+  }
+  setLoading(true);
+  await sendWorkerNotifyEmail(t,t.worker,t.workerEmail);
+  setLoading(false);
+}
+
+async function sendWorkerNotifyEmail(t,workerName,workerEmail){
+  try{
+    const subject=`[PROJECT FLOW] ${t.projectName} — ${t.task} 작업 배정 안내`;
+    const body=`안녕하세요, ${workerName}님.\n\n${t.projectName} 프로젝트에서 아래 작업이 배정되었습니다.\n\n■ 작업명: ${t.task}\n■ 카테고리: ${t.cat||'-'}\n■ 마감일: ${t.end||'미정'}\n■ 현재 상태: ${t.status||'시작 전'}\n${t.memo?`■ 메모: ${t.memo}\n`:''}\nPROJECT FLOW에서 진행 상황을 업데이트해 주세요.\n\n감사합니다.`;
+    await api('/api/notify',{method:'POST',body:JSON.stringify({to:workerEmail,subject,body,taskKey:t.key,worker:workerName})});
+    toast(`✓ ${workerName}(${workerEmail})에게 알림 발송됨`);
+  }catch(e){
+    toast('이메일 발송 실패: '+e.message);
+    console.warn(e);
+  }
+}
+
+async function notifyAllSelected(){
+  const checked=[...document.querySelectorAll('.task-chk:checked')].map(c=>c.dataset.key);
+  if(!checked.length){toast('알림을 보낼 작업을 선택하세요');return;}
+  let sent=0,skipped=0;
+  for(const key of checked){
+    const t=allTasks.find(t=>t.key===key);
+    if(t?.workerEmail?.includes('@')){await sendWorkerNotifyEmail(t,t.worker,t.workerEmail);sent++;}
+    else skipped++;
+  }
+  toast(`✓ ${sent}건 발송, ${skipped}건 이메일 미등록 (건너뜀)`);
+}
+
+function toggleAllChk(el){
+  document.querySelectorAll('.task-chk').forEach(c=>c.checked=el.checked);
+}
+
+// ══ 프로젝트 편집 (작업 추가/수정) ══
+function openEditProjectModal(pid){
+  const p=projects.find(x=>x.id===pid);if(!p)return;
+  document.getElementById('np-name').value=p.name;
+  document.getElementById('np-client').value=p.client||'';
+  document.getElementById('np-pm').value=p.pm||'';
+  document.getElementById('np-lead').value=p.lead||'';
+  document.getElementById('np-start').value=p.start||'';
+  document.getElementById('np-end').value=p.end||'';
+  document.getElementById('np-desc').value=p.desc||'';
+  document.getElementById('aiHistory').innerHTML=`<div style="font-size:12px;color:var(--ink3);text-align:center;padding-top:30px;">기존 작업을 수정하거나 AI로 추가 생성하세요</div>`;
+  aiChatHist=[];
+  // 기존 tasks 불러오기
+  const pTasks=allTasks.filter(t=>t.projectId===pid);
+  setTableTasks(pTasks);
+  // 저장 버튼을 "업데이트"로 변경
+  const saveBtn=document.querySelector('#newProjectModal .modal-actions .btn-primary');
+  if(saveBtn){saveBtn.textContent='💾 업데이트';saveBtn.onclick=()=>updateExistingProject(pid);}
+  openModal('newProjectModal');
+}
+async function updateExistingProject(pid){
+  const name=document.getElementById('np-name').value.trim(),end=document.getElementById('np-end').value;
+  if(!name||!end){toast('프로젝트명과 마감일은 필수');return;}
+  const tasks=getTableTasks();
+  const p=projects.find(x=>x.id===pid);
+  if(!p)return;
+  p.name=name;p.client=document.getElementById('np-client').value;p.pm=document.getElementById('np-pm').value;
+  p.lead=document.getElementById('np-lead').value;p.start=document.getElementById('np-start').value;p.end=end;
+  p.desc=document.getElementById('np-desc').value;p.tasks=tasks;
+  setLoading(true);
+  try{
+    // 로컬 저장
+    const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');const i=ps.findIndex(x=>x.id===pid);if(i>=0)ps[i]=p;localStorage.setItem('pf_projects',JSON.stringify(ps));
+    await saveTasks(pid,tasks);allTasks=await loadTasks();renderSidebar();closeModal('newProjectModal');
+    toast(`"${name}" 업데이트됨 (${tasks.length}개 작업)`);selectedPid=pid;
+    mNav('gantt',document.querySelectorAll('#topNav .nav-btn')[1]);
+    // 저장 버튼 원래대로
+    const saveBtn=document.querySelector('#newProjectModal .modal-actions .btn-primary');
+    if(saveBtn){saveBtn.textContent='💾 저장';saveBtn.onclick=saveNewProject;}
+  }catch(e){toast('저장 실패: '+e.message);}
+  setLoading(false);
 }
 
 // ══ 유틸 ══
