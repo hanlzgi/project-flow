@@ -176,16 +176,41 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
 <div id="loginScreen">
   <div class="login-card">
     <div class="login-logo">PROJECT FLOW</div>
-    <div class="login-sub">제작 스케줄 통합 관리 시스템<br>구글 계정으로 로그인하면 바로 사용 가능합니다</div>
+    <div class="login-sub">제작 스케줄 통합 관리 시스템<br>이메일로 로그인하세요</div>
     <div id="g_id_onload" data-client_id="GOOGLE_CLIENT_ID_PLACEHOLDER" data-callback="handleGoogleLogin" data-auto_prompt="false"></div>
     <div class="g_id_signin" data-type="standard" data-size="large" data-theme="outline" data-text="signin_with" data-locale="ko" data-width="320"></div>
-    <div class="login-divider">또는</div>
+    <div class="login-divider">이메일로 로그인</div>
     <div class="email-form">
       <input type="email" id="loginEmail" placeholder="이메일 주소" autocomplete="email">
-      <input type="password" id="loginPassword" placeholder="비밀번호 (테스트: 아무거나)" onkeydown="if(event.key==='Enter')emailLogin()">
-      <button class="btn-login" onclick="emailLogin()">이메일로 로그인</button>
+      <input type="password" id="loginPassword" placeholder="비밀번호 (아무 값이나 입력)" onkeydown="if(event.key==='Enter')emailLogin()">
+      <button class="btn-login" onclick="emailLogin()">로그인</button>
     </div>
-    <div class="login-notice">ℹ️ 관리자로 접근하려면 등록된 이메일로 로그인하세요.</div>
+
+    <!-- Sheets 연동 복구 -->
+    <div id="sheetsRecoverWrap" style="margin-top:16px;display:none;">
+      <div style="font-size:12px;font-weight:600;color:var(--ink2);margin-bottom:6px;">📊 Google Sheets 연동 복구</div>
+      <div style="display:flex;gap:6px;">
+        <input id="sheetsRecoverInput" class="form-input" style="flex:1;font-size:12.5px;" placeholder="Sheets URL 또는 ID 붙여넣기">
+        <button class="btn btn-sm btn-primary" onclick="applyRecoverSheets()">연결</button>
+      </div>
+      <div style="font-size:11px;color:var(--ink3);margin-top:4px;">Sheets URL에서 /d/ 뒤의 ID 부분만 붙여넣어도 됩니다</div>
+    </div>
+
+    <div style="margin-top:14px;display:flex;justify-content:center;gap:16px;font-size:11.5px;">
+      <button onclick="toggleSheetsRecover()" style="background:none;border:none;color:var(--blue);cursor:pointer;text-decoration:underline;">📊 Sheets 재연동</button>
+      <span style="color:var(--rule)">|</span>
+      <button onclick="showQuickSetup()" style="background:none;border:none;color:var(--ink3);cursor:pointer;text-decoration:underline;">처음 사용</button>
+    </div>
+
+    <div id="quickSetupWrap" style="margin-top:12px;display:none;background:var(--blue-lt);border-radius:8px;padding:12px;font-size:12px;color:var(--blue);text-align:left;line-height:1.8;">
+      <strong>처음 사용 순서:</strong><br>
+      1. <strong>hanlzgi@gmail.com</strong> (관리자)으로 로그인<br>
+      2. 사이드바 하단 <strong>Sheets 연동</strong> 클릭 → URL 입력 → 저장<br>
+      3. 작업자 탭 → <strong>작업자 등록</strong> → 이름 + 로그인 이메일 입력<br>
+      4. 로그아웃 후 작업자 이메일로 재로그인
+    </div>
+
+    <div class="login-notice" style="margin-top:12px;">ℹ️ <strong>hanlzgi@gmail.com</strong> → 관리자 | 그 외 이메일 → 작업자</div>
   </div>
 </div>
 
@@ -622,22 +647,34 @@ async function emailLogin(){
   setLoading(true);
   try{
     const res=await api('/api/auth',{method:'POST',body:JSON.stringify({action:'emailLogin',email})});
-    if(res.ok) loginOk(res.user,res.token);
-    else throw new Error(res.error||'실패');
+    if(res.ok){
+      // 서버 응답에 workerName이 없으면 로컬 Workers에서 보완
+      const user=res.user;
+      if(!user.workerName){
+        const wm=JSON.parse(localStorage.getItem('pf_workers')||'[]');
+        const found=wm.find(w=>w.email&&w.email.toLowerCase().trim()===email);
+        if(found){user.workerName=found.name;user.workerId=found.id;user.name=found.name;}
+      }
+      loginOk(user,res.token);
+    } else throw new Error(res.error||'실패');
   }catch(e){
     // 서버 실패 시 로컬 폴백 — Workers localStorage에서 이름 찾기
     const wm=JSON.parse(localStorage.getItem('pf_workers')||'[]');
     const found=wm.find(w=>w.email&&w.email.toLowerCase().trim()===email);
-    const role=(process.env?.ADMIN_EMAILS||'hanlzgi@gmail.com').includes(email)?'manager':'worker';
+    // 관리자 판단 (로컬 환경에서)
+    const adminEmails=['hanlzgi@gmail.com'];
+    const role=adminEmails.includes(email)?'manager':'worker';
+    const realName=found?.name||'';
     const user={
-      email, name:found?.name||email.split('@')[0],
+      email,
+      name: realName||email.split('@')[0],
       picture:'', role,
-      workerName:found?.name||'', workerId:found?.id||'',
+      workerName: realName,
+      workerId: found?.id||'',
     };
     const token=btoa(JSON.stringify({...user,exp:Date.now()+7*24*3600*1000}));
     loginOk(user,token);
-    if(found) toast(`${found.name}님으로 로그인됨`);
-    else if(e.message!=='실패') toast('서버 연결 안 됨 — 로컬 모드로 로그인');
+    if(found) toast(`✓ ${found.name}님으로 로그인됨`);
   }
   setLoading(false);
 }
@@ -822,7 +859,45 @@ function renderWorkerApp(){
   loadAndRender('worker');
 }
 async function loadAndRender(role){
-  setLoading(true);projects=await loadProjects();allTasks=await loadTasks();syncBadge(isSynced());
+  setLoading(true);
+  // Workers 시트에서 작업자 마스터도 로드 (Sheets 연동 시)
+  if(isSynced()){
+    try{
+      const r=await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'read',sheetName:'Workers'})});
+      if(r.values&&r.values.length>1){
+        const[,...rows]=r.values;
+        const workers=rows.filter(r=>r[0]&&r[1]).map(r=>({
+          id:r[0],name:r[1],role:r[2]||'',type:r[3]||'internal',
+          email:r[4]||'',skills:r[5]||'',color:r[6]||'#1e5fa8',
+          memo:r[7]||'',createdAt:r[8]||'',
+        }));
+        if(workers.length){
+          localStorage.setItem('pf_workers',JSON.stringify(workers));
+        }
+      }
+    }catch(e){console.warn('Workers 로드 실패:',e.message);}
+  }
+  // 로그인 사용자 workerName 재확인 (Workers 로드 후)
+  if(currentUser&&!currentUser.workerName&&currentUser.email){
+    const wm=JSON.parse(localStorage.getItem('pf_workers')||'[]');
+    const found=wm.find(w=>w.email&&w.email.toLowerCase()===currentUser.email.toLowerCase());
+    if(found){
+      currentUser.workerName=found.name;
+      currentUser.workerId=found.id;
+      currentUser.name=found.name;
+      // 세션 토큰 갱신
+      localStorage.setItem('pf_user',JSON.stringify(currentUser));
+      const tok=btoa(JSON.stringify({...currentUser,exp:Date.now()+7*24*3600*1000}));
+      localStorage.setItem('pf_session',tok);
+      // 상단 이름 즉시 갱신
+      const displayName=found.name;
+      document.getElementById('userName').textContent=displayName;
+      document.getElementById('userAvatar').textContent=displayName[0].toUpperCase();
+    }
+  }
+  projects=await loadProjects();
+  allTasks=await loadTasks();
+  syncBadge(isSynced());
   if(role==='worker'){renderWorkerPanel('myTasks');}else{renderSidebar();renderMgr('dashboard');}
   setLoading(false);
 }
@@ -2672,8 +2747,74 @@ document.querySelectorAll('.modal-overlay').forEach(m=>{m.addEventListener('clic
 // ══ 초기화 ══
 function init(){
   document.getElementById('g_id_onload').dataset.clientId=window.GOOGLE_CLIENT_ID||'YOUR_GOOGLE_CLIENT_ID';
+  // 이미 Sheets ID 있으면 로그인 화면에 연동 상태 표시
+  const sid=localStorage.getItem('pf_sheets_id');
+  if(sid){
+    const notice=document.querySelector('.login-notice');
+    if(notice) notice.innerHTML=`ℹ️ <strong>hanlzgi@gmail.com</strong> → 관리자 | 그 외 이메일 → 작업자<br><span style="color:var(--green);font-size:11px;">● Sheets 연동됨 (${sid.slice(0,12)}...)</span>`;
+  }
   if(checkSession())renderApp();
   else{document.getElementById('loginScreen').style.display='flex';document.getElementById('appScreen').style.display='none';}
+}
+
+// 로그인 화면 — Sheets 재연동 토글
+function toggleSheetsRecover(){
+  const w=document.getElementById('sheetsRecoverWrap');
+  w.style.display=w.style.display==='none'?'block':'none';
+  if(w.style.display==='block'){
+    const existing=localStorage.getItem('pf_sheets_id')||'';
+    document.getElementById('sheetsRecoverInput').value=existing;
+  }
+}
+
+// 로그인 화면 — Sheets ID 적용 (로그인 전)
+async function applyRecoverSheets(){
+  const val=document.getElementById('sheetsRecoverInput').value.trim();
+  if(!val){toast('Sheets URL 또는 ID를 입력하세요');return;}
+  const m=val.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  const id=m?m[1]:val;
+  localStorage.setItem('pf_sheets_id',id);
+  document.getElementById('sheetsRecoverWrap').style.display='none';
+  toast('✓ Sheets ID 저장됨 — 로그인 후 데이터가 자동으로 불러와집니다');
+  // 연동 상태 표시
+  const notice=document.querySelector('.login-notice');
+  if(notice) notice.innerHTML=`ℹ️ <strong>hanlzgi@gmail.com</strong> → 관리자 | 그 외 이메일 → 작업자<br><span style="color:var(--green);font-size:11px;">● Sheets 연동됨 (${id.slice(0,12)}...)</span>`;
+}
+
+// 처음 사용 안내 토글
+function showQuickSetup(){
+  const w=document.getElementById('quickSetupWrap');
+  w.style.display=w.style.display==='none'?'block':'none';
+}
+
+// ── 데이터 복구 (기존 코드 유지) ──────
+async function recoverData(){
+  const sheetsId=localStorage.getItem('pf_sheets_id');
+  if(!sheetsId){
+    // Sheets 미연동 — 수동 안내
+    const id=prompt(
+      '데이터를 복구하려면 Google Sheets ID가 필요합니다.\n\n' +
+      '이전에 Sheets 연동을 했다면 스프레드시트 URL에서 ID를 복사해 붙여넣으세요.\n' +
+      '(https://docs.google.com/spreadsheets/d/【이 부분】/edit)\n\n' +
+      'Sheets 연동을 한 적이 없다면 취소를 누르세요.'
+    );
+    if(!id)return;
+    const m=id.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    localStorage.setItem('pf_sheets_id', m?m[1]:id);
+  }
+  toast('Sheets에서 데이터를 불러오는 중...');
+  try{
+    const [projs, tasks] = await Promise.all([loadProjects(), loadTasks()]);
+    // 로컬에 캐시
+    if(projs.length){
+      localStorage.setItem('pf_projects', JSON.stringify(projs));
+      toast(`✓ 프로젝트 ${projs.length}개 복구됨`);
+    } else {
+      toast('Sheets에서 데이터를 찾을 수 없습니다. 관리자에게 문의하세요.');
+    }
+  }catch(e){
+    toast('복구 실패: '+e.message);
+  }
 }
 init();
 </script>
