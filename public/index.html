@@ -1293,7 +1293,22 @@ function wNav(p,btn){document.querySelectorAll('#topNav .nav-btn').forEach(b=>b.
 // ══ 관리자 패널 ══
 function renderSidebar(){const el=document.getElementById('projectSidebar');if(!projects.length){el.innerHTML=`<div style="padding:16px;font-size:12px;color:var(--ink3)">프로젝트를 추가하세요</div>`;return;}el.innerHTML=projects.map(p=>`<div class="s-item ${p.id===selectedPid?'active':''}" onclick="selectProj('${p.id}')"><div class="s-item-name"><span class="s-dot" style="background:${p.color}"></span>${p.name}</div><div class="s-item-meta">${p.end||''}</div></div>`).join('');}
 function selectProj(id){selectedPid=id;renderSidebar();mNav('gantt',document.querySelectorAll('#topNav .nav-btn')[2]);}
-function renderMgr(panel){const c=document.getElementById('managerContent');if(panel==='dashboard')c.innerHTML=dashHTML();else if(panel==='gantt')c.innerHTML=ganttHTML();else if(panel==='tasks')c.innerHTML=tasksHTML();else if(panel==='workers')c.innerHTML=workersHTML();}
+function renderMgr(panel){
+  const c=document.getElementById('managerContent');
+  if(panel==='dashboard') c.innerHTML=dashHTML();
+  else if(panel==='gantt'){
+    c.innerHTML=ganttHTML();
+    // 공정표 오늘 날짜 자동 스크롤
+    setTimeout(()=>{
+      const wrap=document.getElementById('ganttScrollWrap');
+      if(!wrap) return;
+      const tx=parseInt(wrap.dataset.todayX||'0');
+      if(tx>0) wrap.scrollLeft=Math.max(0,tx-120);
+    },30);
+  }
+  else if(panel==='tasks') c.innerHTML=tasksHTML();
+  else if(panel==='workers') c.innerHTML=workersHTML();
+}
 
 // ── 공통 갱신: 데이터 변경 후 전체 탭 동기화 ──────────────────────
 // trigger: 어떤 데이터가 바뀌었는지 ('task'|'worker'|'project')
@@ -1584,7 +1599,7 @@ function ganttHTML(){
     </div>
 
     <!-- 공정표 본체 -->
-    <div style="flex:1;overflow:auto;border:1px solid var(--rule);border-radius:10px;background:var(--paper);">
+    <div id="ganttScrollWrap" data-today-x="${Math.round(todayX)}" style="flex:1;overflow:auto;border:1px solid var(--rule);border-radius:10px;background:var(--paper);">
       <div style="display:flex;min-width:900px;">
 
         <!-- 왼쪽 고정 열 -->
@@ -3844,10 +3859,15 @@ async function sendWorkerNotifyEmail(t,workerName,workerEmail){
   try{
     const subject=`[PROJECT FLOW] ${t.projectName} — ${t.task} 작업 배정 안내`;
     const body=`안녕하세요, ${workerName}님.\n\n${t.projectName} 프로젝트에서 아래 작업이 배정되었습니다.\n\n■ 작업명: ${t.task}\n■ 카테고리: ${t.cat||'-'}\n■ 마감일: ${t.end||'미정'}\n■ 현재 상태: ${t.status||'시작 전'}\n${t.memo?`■ 메모: ${t.memo}\n`:''}\nPROJECT FLOW에서 진행 상황을 업데이트해 주세요.\n\n감사합니다.`;
-    await api('/api/notify',{method:'POST',body:JSON.stringify({to:workerEmail,subject,body,taskKey:t.key,worker:workerName})});
-    toast(`✓ ${workerName}(${workerEmail})에게 알림 발송됨`);
+    const res=await api('/api/notify',{method:'POST',body:JSON.stringify({to:workerEmail,subject,body,taskKey:t.key,worker:workerName})});
+    if(res.ok){
+      const methodMap={slack:'Slack 알림',gmail_smtp:'이메일',draft:'Gmail 임시보관함',log_only:'로그(미설정)'};
+      toast(`✓ ${workerName} — ${methodMap[res.method]||'알림'} 전송됨`);
+    } else {
+      toast(`⚠️ 알림 미설정 — Vercel에 SLACK_WEBHOOK_URL을 등록하세요`);
+    }
   }catch(e){
-    toast('이메일 발송 실패: '+e.message);
+    toast('알림 발송 실패: '+e.message);
     console.warn(e);
   }
 }
