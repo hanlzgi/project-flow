@@ -6,7 +6,7 @@
 <title>PROJECT FLOW</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap');
-:root{--bg:#f4f2ee;--paper:#faf9f6;--ink:#1a1814;--ink2:#6b6760;--ink3:#b0ada8;--rule:#e2dfd8;--accent:#c8521a;--alt:#f5e8e0;--blue:#1e5fa8;--blue-lt:#e3ecf7;--green:#2a7a4b;--green-lt:#e2f2e9;--yellow:#c89a1a;--yellow-lt:#fdf4d8;--purple:#7c4ba0;--purple-lt:#f0e8f8;--radius:6px;--shadow:0 1px 3px rgba(0,0,0,.08),0 4px 16px rgba(0,0,0,.05);--shadow-lg:0 8px 32px rgba(0,0,0,.12);}
+:root{--bg:#f4f2ee;--paper:#faf9f6;--ink:#1a1814;--ink2:#6b6760;--ink3:#b0ada8;--rule:#e2dfd8;--accent:#c8521a;--alt:#f5e8e0;--blue:#1e5fa8;--blue-lt:#e3ecf7;--green:#2a7a4b;--green-lt:#e2f2e9;--yellow:#c89a1a;--yellow-lt:#fdf4d8;--purple:var(--accent);--purple-lt:#f0e8f8;--radius:6px;--shadow:0 1px 3px rgba(0,0,0,.08),0 4px 16px rgba(0,0,0,.05);--shadow-lg:0 8px 32px rgba(0,0,0,.12);}
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;font-size:13.5px;}
 #loginScreen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;}
@@ -540,8 +540,8 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
     <div style="margin-bottom:14px;border:1px solid rgba(124,75,160,.3);border-radius:8px;overflow:hidden;">
       <div style="background:rgba(124,75,160,.08);padding:8px 12px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;"
         onclick="toggleTdMarker()">
-        <span style="font-size:12px;font-weight:600;color:#7c4ba0;">🔖 중요일정으로 공정표에 표시</span>
-        <span id="tdMarkerArrow" style="font-size:11px;color:#7c4ba0;transition:transform .2s;display:inline-block;">▼</span>
+        <span style="font-size:12px;font-weight:600;color:var(--accent);">🔖 중요일정으로 공정표에 표시</span>
+        <span id="tdMarkerArrow" style="font-size:11px;color:var(--accent);transition:transform .2s;display:inline-block;">▼</span>
       </div>
       <div id="tdMarkerWrap" style="display:none;padding:10px 12px;background:white;">
         <div style="font-size:11.5px;color:var(--ink2);margin-bottom:8px;">
@@ -550,7 +550,7 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <label style="display:flex;align-items:center;gap:5px;font-size:12.5px;cursor:pointer;">
             <input type="checkbox" id="td-markerEnabled" onchange="toggleTdMarkerFields(this)"
-              style="width:15px;height:15px;accent-color:#7c4ba0;">
+              style="width:15px;height:15px;accent-color:var(--accent);">
             공정표에 마커 표시
           </label>
           <input id="td-markerLabel" class="form-input" placeholder="표시 이름 (예: 착수보고)"
@@ -771,9 +771,9 @@ function getProjectTasks(pid){
   );
 }
 let aiChatHist=[]; // AI 대화 이력
-const PC=['#c8521a','#1e5fa8','#2a7a4b','#7c4ba0','#c89a1a','#a0531e','#1e6878'];
-const MARKER_COLORS={'보고회':'#7c4ba0','납품일':'#c8521a','검수':'#1e5fa8','마감':'#c8521a','킥오프':'#2a7a4b','기타':'#555'};
-const CC={'기획':{bg:'#e3ecf7',fg:'#1e5fa8'},'영상':{bg:'#f5e8e0',fg:'#c8521a'},'디자인':{bg:'#e2f2e9',fg:'#2a7a4b'},'반응형':{bg:'#f0e8f8',fg:'#7c4ba0'},'홍보':{bg:'#fdf4d8',fg:'#c89a1a'},'애니':{bg:'#fde8d8',fg:'#a0531e'},'관리':{bg:'#e8ede8',fg:'#5a7a5a'},'편집':{bg:'#e0eff5',fg:'#1e6878'},'default':{bg:'#ebebeb',fg:'#6b6760'}};
+const PC=['#c8521a','#1e5fa8','#2a7a4b','var(--accent)','#c89a1a','#a0531e','#1e6878'];
+const MARKER_COLORS={'보고회':'var(--accent)','납품일':'#c8521a','검수':'#1e5fa8','마감':'#c8521a','킥오프':'#2a7a4b','기타':'#555'};
+const CC={'기획':{bg:'#e3ecf7',fg:'#1e5fa8'},'영상':{bg:'#f5e8e0',fg:'#c8521a'},'디자인':{bg:'#e2f2e9',fg:'#2a7a4b'},'반응형':{bg:'#f0e8f8',fg:'var(--accent)'},'홍보':{bg:'#fdf4d8',fg:'#c89a1a'},'애니':{bg:'#fde8d8',fg:'#a0531e'},'관리':{bg:'#e8ede8',fg:'#5a7a5a'},'편집':{bg:'#e0eff5',fg:'#1e6878'},'default':{bg:'#ebebeb',fg:'#6b6760'}};
 function cc(n=''){for(const[k,v]of Object.entries(CC))if(n.includes(k))return v;return CC.default;}
 function sc(s){return{'시작 전':'s-todo','진행 중':'s-wip','완료':'s-done','보류':'s-hold','검토 요청':'s-review','수정 중':'s-wip'}[s]||'s-todo';}
 function getSheetsId(){return localStorage.getItem('pf_sheets_id')||'';}
@@ -1572,7 +1572,7 @@ function ganttHTML(){
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <div style="font-size:12px;color:var(--ink2);">${project.pm||'PM 미지정'} · ${project.start} ~ ${project.end} · ${pTasks.length}개 공정</div>
         <button class="btn btn-sm btn-secondary" onclick="openEditProjectModal('${project.id}')">✏️ 편집</button>
-        <button class="btn btn-sm" style="background:#7c4ba0;color:white;" onclick="openMarkerModal('${project.id}')">🔖 중요일정</button>
+        <button class="btn btn-sm" style="background:var(--accent);color:white;" onclick="openMarkerModal('${project.id}')">🔖 중요일정</button>
         <button class="btn btn-sm" style="background:var(--purple);color:white;" onclick="openGanttComment('${project.id}')">💬 코멘트</button>
       </div>
     </div>
@@ -2834,7 +2834,7 @@ async function initSheetHeaders(){
 }
 
 // ══ 인력 마스터 DB ══
-const WORKER_COLORS=['#1e5fa8','#c8521a','#2a7a4b','#7c4ba0','#c89a1a','#a0531e','#1e6878','#5a2a7a','#2a5a8a','#7a2a2a'];
+const WORKER_COLORS=['#1e5fa8','#c8521a','#2a7a4b','var(--accent)','#c89a1a','#a0531e','#1e6878','#5a2a7a','#2a5a8a','#7a2a2a'];
 
 function getWorkerMaster(){
   return JSON.parse(localStorage.getItem('pf_workers')||'[]');
