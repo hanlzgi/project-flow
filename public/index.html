@@ -112,6 +112,8 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
 .g-col-hd{height:38px;display:flex;align-items:center;padding:0 12px;background:var(--bg);border-bottom:1px solid var(--rule);font-size:10.5px;font-weight:600;color:var(--ink2);text-transform:uppercase;letter-spacing:.05em;}
 .g-row{height:34px;display:flex;align-items:center;padding:0 12px;border-bottom:1px solid var(--rule);font-size:12px;gap:8px;}
 .g-row:hover{background:rgba(0,0,0,.012);}
+.gantt-draggable:hover .gantt-drag-handle{opacity:.8!important;}
+.gantt-draggable.drag-over{border-top:2.5px solid var(--accent)!important;background:var(--alt)!important;}
 .g-name{flex:1;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .g-worker{font-size:11px;color:var(--ink2);background:var(--bg);padding:1px 7px;border-radius:10px;white-space:nowrap;}
 .g-cat-row{height:28px;display:flex;align-items:center;padding:0 12px;border-bottom:1px solid var(--rule);font-size:11px;font-weight:600;color:var(--ink2);background:rgba(0,0,0,.02);}
@@ -1207,6 +1209,30 @@ function renderSidebar(){const el=document.getElementById('projectSidebar');if(!
 function selectProj(id){selectedPid=id;renderSidebar();mNav('gantt',document.querySelectorAll('#topNav .nav-btn')[2]);}
 function renderMgr(panel){const c=document.getElementById('managerContent');if(panel==='dashboard')c.innerHTML=dashHTML();else if(panel==='gantt')c.innerHTML=ganttHTML();else if(panel==='tasks')c.innerHTML=tasksHTML();else if(panel==='workers')c.innerHTML=workersHTML();}
 
+// ── 공통 갱신: 데이터 변경 후 전체 탭 동기화 ──────────────────────
+// trigger: 어떤 데이터가 바뀌었는지 ('task'|'worker'|'project')
+// 현재 활성 탭을 우선 갱신하고, 사이드바/대시보드 통계도 갱신
+function refreshAll(trigger='task'){
+  renderSidebar();
+  // 현재 활성 탭 파악
+  const activeBtn = document.querySelector('#topNav .nav-btn.active');
+  const activePanel = activeBtn ? (['dashboard','tasks','gantt','workers'].find(p=>activeBtn.textContent.includes({dashboard:'대시보드',tasks:'전체 작업',gantt:'공정표',workers:'작업자'}[p]||'')) || 'gantt') : 'gantt';
+  renderMgr(activePanel);
+  // Sheets 저장 (비동기, 실패해도 무시)
+  if(isSynced()&&trigger==='task'){
+    const tRows=allTasks.map(t=>[t.id,t.projectId,t.projectName||'',t.projectColor||'',t.cat||'',t.task,t.worker||'',t.weight||'',t.start||'',t.end||'',t.status||'시작 전',t.memo||'',t.actualEnd||'',t.createdBy||'',new Date().toISOString(),t.workerEmail||'',Array.isArray(t.workers)?t.workers.join(','):(t.worker||''),t.workerRole||'',t.subtasks?JSON.stringify(t.subtasks):'']);
+    api('/api/sheets',{method:'POST',body:JSON.stringify({action:'clearAndWrite',sheetName:'Tasks',values:tRows})}).catch(()=>{});
+  }
+}
+// 작업자 뷰에서 데이터 변경 시 갱신
+function refreshWorkerView(){
+  const mn=currentUser?.workerName||currentUser?.name||currentUser?.email?.split('@')[0]||'';
+  const my=allTasks.filter(t=>isMyTask(t));
+  const active=document.querySelector('#topNav .nav-btn.active');
+  const panel=active?.textContent.includes('내 작업')?'myTasks':active?.textContent.includes('공정표')?'gantt':active?.textContent.includes('전체 일정')?'allSchedule':active?.textContent.includes('업데이트')?'update':'myTasks';
+  renderWorkerPanel(panel);
+}
+
 function dashHTML(){
   const total=allTasks.length,done=allTasks.filter(t=>t.status==='완료').length,wip=allTasks.filter(t=>t.status==='진행 중').length,active=projects.filter(p=>new Date(p.end)>=new Date()).length;
   const wm={};allTasks.forEach(t=>{if(!wm[t.worker])wm[t.worker]={total:0,done:0,review:0};wm[t.worker].total++;if(t.status==='완료')wm[t.worker].done++;if(t.status==='검토 요청')wm[t.worker].review++;});
@@ -1341,7 +1367,12 @@ function ganttHTML(){
   Object.entries(cm).forEach(([cat,tasks])=>{
     const c=cc(cat);
     // 카테고리 헤더 행 — 공정 추가 버튼 포함
-    lH+=`<div class="g-cat-row" style="background:${c.bg}30;border-left:3px solid ${c.fg};display:flex;align-items:center;justify-content:space-between;padding-right:8px;">
+    lH+=`<div class="g-cat-row" 
+      data-cat="${cat}"
+      ondragover="ganttDragOver(event)"
+      ondragleave="ganttDragLeave(event)"
+      ondrop="ganttDrop(event,null,'${cat}')"
+      style="background:${c.bg}30;border-left:3px solid ${c.fg};display:flex;align-items:center;justify-content:space-between;padding-right:8px;">
       <span>${cat} <span style="font-size:10px;color:var(--ink3);font-weight:400;">(${tasks.length})</span></span>
       <button onclick="event.stopPropagation();addTaskToCategory('${project.id}','${cat}')"
         style="padding:1px 7px;font-size:10.5px;border:1px dashed ${c.fg};border-radius:3px;background:transparent;color:${c.fg};cursor:pointer;font-family:inherit;opacity:.8;">
@@ -1363,8 +1394,19 @@ function ganttHTML(){
         ? Math.round(subs.filter(s=>s.status==='완료').length/subs.length*100)
         : (t.status==='완료'?100:t.status==='진행 중'?50:0);
 
-      // 왼쪽: 공정 행
-      lH+=`<div class="g-row" style="cursor:pointer;border-left:3px solid ${expanded?c.fg:'transparent'};background:${expanded?c.bg+'30':''};">
+      // 왼쪽: 공정 행 (드래그앤드롭 핸들 포함)
+      lH+=`<div class="g-row gantt-draggable" 
+        style="cursor:pointer;border-left:3px solid ${expanded?c.fg:'transparent'};background:${expanded?c.bg+'30':''};"
+        draggable="true"
+        data-key="${t.key}"
+        data-cat="${cat}"
+        ondragstart="ganttDragStart(event,'${t.key}','${cat}')"
+        ondragover="ganttDragOver(event)"
+        ondragleave="ganttDragLeave(event)"
+        ondrop="ganttDrop(event,'${t.key}','${cat}')">
+        <span class="gantt-drag-handle" title="드래그하여 순서 변경"
+          style="cursor:grab;padding:0 4px 0 0;color:var(--ink3);font-size:13px;line-height:1;flex-shrink:0;opacity:.5;user-select:none;"
+          onmousedown="event.stopPropagation()">⠿</span>
         <button onclick="event.stopPropagation();toggleGanttRow('${t.key}')"
           title="${expanded?'접기':'펼치기 / 세부공정 추가'}"
           style="width:16px;height:16px;border:1px solid ${expanded?c.fg:(hasExp?c.fg:'var(--rule)')};border-radius:3px;background:${expanded?c.fg:(hasExp?c.bg:'transparent')};color:${expanded?'white':c.fg};font-size:10px;line-height:1;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:0;transition:all .15s;">
@@ -1609,8 +1651,7 @@ async function deleteAllSelected(){
   }
 
   toast(`✓ ${checked.length}개 공정 삭제됨`);
-  renderSidebar();
-  renderMgr('tasks');
+  refreshAll('task');
 }
 
 // 전체작업 세부공정 행 토글
@@ -1774,7 +1815,7 @@ function deleteWorkerFromPool(name, workerId){
   } else {
     // 마스터에 없는 경우(공정에만 있는 작업자) — 별도 처리 없음 (공정에는 유지)
     toast(`✓ "${name}" 삭제됨`);
-    renderMgr('workers');
+    refreshAll('worker');
   }
 }
 
@@ -2057,13 +2098,13 @@ function workerGanttHTML(mn){
       const rowBg=myTask?`${c.bg}40`:'';
       const myDot=myTask?`<span style="width:6px;height:6px;border-radius:50%;background:${c.fg};flex-shrink:0;display:inline-block;"></span>`:'';
 
-      lH+=`<div class="g-row" style="background:${rowBg};">
+      lH+=`<div class="g-row" style="background:${rowBg};${myTask?'cursor:pointer;':''}" ${myTask?`onclick="openTU('${t.key}')"`:''}  title="${myTask?'클릭하여 상태 업데이트':''}">
         ${myDot}
         <span class="g-name" style="font-weight:${myTask?600:400};color:${myTask?'var(--ink)':'var(--ink2)'};">${t.task}</span>
         <span class="g-worker" style="font-size:10.5px;${myTask?`color:${c.fg};font-weight:600`:''}">${t.worker||'-'}</span>
         <span class="status-badge ${sc(t.status)}" style="font-size:9.5px;padding:1px 6px;">${t.status}</span>
       </div>`;
-      rH+=`<div style="height:34px;position:relative;">
+      rH+=`<div style="height:34px;position:relative;" ${myTask?`onclick="openTU('${t.key}')" title="클릭하여 상태 업데이트" style="cursor:pointer;"`:'style="position:relative;"'}>
         ${gridLines}
         ${showToday?`<div style="position:absolute;left:${todayX}px;top:0;bottom:0;width:2px;background:var(--accent);opacity:.6;z-index:4;pointer-events:none;"></div>`:''}
         <div style="position:absolute;left:${barX}px;width:${barW}px;height:18px;top:50%;transform:translateY(-50%);background:${barBg};border-radius:3px;z-index:3;${myTask?'box-shadow:0 2px 6px rgba(0,0,0,.18);':''};overflow:hidden;display:flex;align-items:center;padding:0 6px;font-size:10px;font-weight:500;color:white;white-space:nowrap;">
@@ -2436,8 +2477,7 @@ async function saveTaskDetail(){
 
   closeModal('taskDetailModal');
   toast('✓ 공정 저장됨');
-  // 공정표 새로고침
-  renderMgr('gantt');
+  refreshAll('task');
 }
 
 // ══ 작업 상태 업데이트 ══
@@ -2463,11 +2503,9 @@ async function submitTaskUpdate(){
   closeModal('taskUpdateModal');
   toast(`✓ "${t?.task||'작업'}" 상태가 "${status}"로 업데이트됐습니다`);
   if(currentUser.role==='manager'){
-    renderMgr('tasks');
+    refreshAll('task');
   } else {
-    const mn=currentUser.workerName||currentUser.name||currentUser.email.split('@')[0];
-    const my=allTasks.filter(t=>isMyTask(t));
-    document.getElementById('workerContent').innerHTML=updateHTML(my,mn);
+    refreshWorkerView();
   }
   setLoading(false);
 }
@@ -2506,7 +2544,7 @@ async function submitWorkerSchedule(){
     await saveTasks(projectId,tasks);
     toast('✓ 일정 제출됨. 관리자 검토 후 공정표에 반영됩니다.');
     allTasks=[...allTasks,...tasks.map(t=>({...t,projectId,projectName:projects.find(p=>p.id===projectId)?.name||'신규',projectColor:projects.find(p=>p.id===projectId)?.color||'#888',key:`${projectId}_${t.task}_${t.worker}`}))];
-    closeModal('workerScheduleModal');renderWorkerPanel('myTasks');
+    closeModal('workerScheduleModal');refreshWorkerView();
   }catch(e){toast('저장 실패: '+e.message);}
   setLoading(false);
 }
@@ -2745,7 +2783,7 @@ function saveWorkerMasterModal(){
   }
   saveWorkerMaster(wm);
   closeModal('workerMasterModal');
-  renderMgr('workers');
+  refreshAll('worker');
 }
 function deleteWorkerMaster(skipConfirm=false){
   if(!_editWorkerId) return;
@@ -2756,7 +2794,7 @@ function deleteWorkerMaster(skipConfirm=false){
   saveWorkerMaster(filtered);
   closeModal('workerMasterModal');
   toast(`✓ "${w?.name||'작업자'}" 삭제됨`);
-  renderMgr('workers');
+  refreshAll('worker');
 }
 
 // ══ 공정 세분화 — 작업자 기준 배치 모달 ══
@@ -2847,7 +2885,7 @@ async function saveTaskAssignByWorker(){
 
   closeModal('taskAssignWorkerModal');
   toast(`✓ ${workerName}님에게 ${changed}개 공정 배치됨`);
-  renderMgr('workers');
+  refreshAll('task');
 }
 
 // ══ 공정 추가 (작업자 탭에서 바로) ══
@@ -2920,7 +2958,7 @@ function saveNewTaskFromDetail(pid, cat){
   if(saveBtn){ saveBtn.textContent='저장'; saveBtn.onclick=saveTaskDetail; }
   closeModal('taskDetailModal');
   toast(`✓ "${taskName}" 공정 추가됨`);
-  renderMgr('gantt');
+  refreshAll('task');
 }
 
 // ══ 공정표 상태 ══
@@ -3162,6 +3200,96 @@ function ganttWorkerFilterHTML(){
   </div>`;
 }
 
+// ══ 공정표 드래그앤드롭 순서 변경 ══
+let _ganttDragKey = '';  // 현재 드래그 중인 task key
+let _ganttDragCat = '';  // 드래그 시작 카테고리
+
+function ganttDragStart(event, key, cat){
+  _ganttDragKey = key;
+  _ganttDragCat = cat;
+  event.dataTransfer.effectAllowed = 'move';
+  event.dataTransfer.setData('text/plain', key);
+  // 드래그 중인 행 시각적 피드백
+  setTimeout(()=>{ event.target.style.opacity='0.4'; }, 0);
+}
+
+function ganttDragOver(event){
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'move';
+  // 드롭 타겟 하이라이트
+  const row = event.currentTarget;
+  row.style.borderTop = '2px solid var(--accent)';
+}
+
+function ganttDragLeave(event){
+  event.currentTarget.style.borderTop = '';
+}
+
+function ganttDrop(event, targetKey, targetCat){
+  event.preventDefault();
+  event.currentTarget.style.borderTop = '';
+
+  const dragKey = _ganttDragKey;
+  const dragCat = _ganttDragCat;
+  if(!dragKey || dragKey === targetKey) return;
+
+  const project = (selectedPid ? projects.find(p=>p.id===selectedPid) : null) || projects[0];
+  if(!project) return;
+
+  // allTasks에서 드래그 task 찾기
+  const dragTaskIdx = allTasks.findIndex(t=>t.key===dragKey);
+  if(dragTaskIdx < 0) return;
+  const dragTask = allTasks[dragTaskIdx];
+
+  // 카테고리 변경
+  if(targetCat && dragCat !== targetCat){
+    dragTask.cat = targetCat;
+  }
+
+  // 순서 변경
+  allTasks.splice(dragTaskIdx, 1);
+
+  if(targetKey){
+    // 타겟 task 앞에 삽입
+    const targetIdx = allTasks.findIndex(t=>t.key===targetKey);
+    if(targetIdx >= 0){
+      allTasks.splice(targetIdx, 0, dragTask);
+    } else {
+      allTasks.push(dragTask);
+    }
+  } else {
+    // 카테고리 헤더에 드롭 → 해당 카테고리 첫 번째 공정 앞에 삽입
+    const firstInCat = allTasks.findIndex(t=>t.projectId===project.id && t.cat===targetCat);
+    if(firstInCat >= 0){
+      allTasks.splice(firstInCat, 0, dragTask);
+    } else {
+      allTasks.push(dragTask);
+    }
+  }
+
+  // 드래그 완료 후 복원
+  document.querySelectorAll('.gantt-draggable').forEach(el=>{el.style.opacity='';});
+
+  // 저장 (로컬 + Sheets)
+  const ps = JSON.parse(localStorage.getItem('pf_projects')||'[]');
+  const proj = ps.find(p=>p.id===project.id);
+  if(proj){
+    // 이 프로젝트의 tasks 순서를 allTasks 기준으로 재정렬
+    const ordered = allTasks.filter(t=>t.projectId===project.id);
+    proj.tasks = ordered;
+    localStorage.setItem('pf_projects', JSON.stringify(ps));
+  }
+
+  if(isSynced()){
+    const tRows = allTasks.map(t=>[t.id,t.projectId,t.projectName||'',t.projectColor||'',t.cat||'',t.task,t.worker||'',t.weight||'',t.start||'',t.end||'',t.status||'시작 전',t.memo||'',t.actualEnd||'',t.createdBy||'',new Date().toISOString(),t.workerEmail||'',Array.isArray(t.workers)?t.workers.join(','):(t.worker||''),t.workerRole||'',t.subtasks?JSON.stringify(t.subtasks):'']);
+    api('/api/sheets',{method:'POST',body:JSON.stringify({action:'clearAndWrite',sheetName:'Tasks',values:tRows})}).catch(()=>{});
+  }
+
+  // 공정표만 갱신 (다른 탭 불필요)
+  renderMgr('gantt');
+  toast(`✓ "${dragTask.task}" 이동됨${dragCat!==targetCat&&targetCat?` → ${targetCat}`:''}`);
+}
+
 function toggleGanttRow(key){
   if(ganttExpanded.has(key)) ganttExpanded.delete(key);
   else ganttExpanded.add(key);
@@ -3227,7 +3355,7 @@ function saveSubtask(){
   closeModal('subtaskModal');
   toast('✓ 세부공정 저장됨');
   ganttExpanded.add(_stKey);
-  renderMgr('gantt');
+  refreshAll('task');
 }
 
 // ══ 공정 삭제 ══
@@ -3250,8 +3378,7 @@ async function deleteTask(key){
 
   closeModal('taskDetailModal');
   toast(`✓ "${t.task}" 공정 삭제됨`);
-  renderSidebar();
-  renderMgr('gantt');
+  refreshAll('task');
 }
 
 function deleteSubtask(){
@@ -3272,7 +3399,7 @@ function deleteSubtask(){
 
   closeModal('subtaskModal');
   toast(`✓ "${subName}" 세부공정 삭제됨`);
-  renderMgr('gantt');
+  refreshAll('task');
 }
 
 // ── 한국 공휴일 ──
@@ -3388,11 +3515,11 @@ async function submitAssignWorker(){
   }
   closeModal('assignModal');
   toast(`✓ ${workerName}님에게 배정됨`);
+  refreshAll('task');
   // 알림 이메일 발송
   if(sendNotify&&workerEmail&&workerEmail.includes('@')){
     await sendWorkerNotifyEmail(t,workerName,workerEmail);
   }
-  renderMgr('tasks');
 }
 
 // ══ 알림 이메일 (Gmail MCP) ══
@@ -3469,7 +3596,7 @@ async function updateExistingProject(pid){
   try{
     // 로컬 저장
     const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');const i=ps.findIndex(x=>x.id===pid);if(i>=0)ps[i]=p;localStorage.setItem('pf_projects',JSON.stringify(ps));
-    await saveTasks(pid,tasks);allTasks=await loadTasks();renderSidebar();closeModal('newProjectModal');
+    await saveTasks(pid,tasks);allTasks=await loadTasks();normalizeTaskProjectIds();closeModal('newProjectModal');refreshAll('task');
     toast(`"${name}" 업데이트됨 (${tasks.length}개 작업)`);selectedPid=pid;
     mNav('gantt',document.querySelectorAll('#topNav .nav-btn')[2]);
     // 저장 버튼 원래대로
