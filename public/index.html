@@ -735,11 +735,14 @@ async function loadTasks(){
       }
     }catch(e){console.warn('Sheets read fail',e.message);}
   }
-  // 로컬 폴백
+  // 로컬 폴백 — localStorage와 메모리 projects 전역 변수 모두 참조
   const localProjects=JSON.parse(localStorage.getItem('pf_projects')||'[]');
+  // 메모리에는 있지만 localStorage에는 아직 없는 프로젝트 병합 (저장 직후 타이밍 이슈 방지)
+  const memOnlyProjects=projects.filter(mp=>!localProjects.find(lp=>lp.id===mp.id));
+  const allLocalProjects=[...localProjects, ...memOnlyProjects];
   const sm=JSON.parse(localStorage.getItem('pf_task_status')||'{}');
   const tasks=[];
-  for(const p of localProjects){
+  for(const p of allLocalProjects){
     for(const t of(p.tasks||[])){
       const k=t.key||`${p.id}_${t.task}_${t.worker}`;
       tasks.push({...t,projectId:p.id,projectName:p.name,projectColor:p.color||'#888',
@@ -1859,13 +1862,61 @@ function openNewProjectModal(){
   openModal('newProjectModal');
 }
 async function saveNewProject(){
-  const name=document.getElementById('np-name').value.trim(),end=document.getElementById('np-end').value;
+  const name=document.getElementById('np-name').value.trim();
+  const end=document.getElementById('np-end').value;
   if(!name||!end){toast('프로젝트명과 마감일은 필수');return;}
+
   const tasks=getTableTasks();
-  const project={id:'p'+Date.now(),name,client:document.getElementById('np-client').value,pm:document.getElementById('np-pm').value,lead:document.getElementById('np-lead').value,start:document.getElementById('np-start').value,end,desc:document.getElementById('np-desc').value,color:PC[projects.length%PC.length],createdAt:new Date().toISOString(),createdBy:currentUser?.email||'',tasks};
+  const pid='p'+Date.now();
+  const project={
+    id:pid, name,
+    client:document.getElementById('np-client').value,
+    pm:document.getElementById('np-pm').value,
+    lead:document.getElementById('np-lead').value,
+    start:document.getElementById('np-start').value,
+    end,
+    desc:document.getElementById('np-desc').value,
+    color:PC[projects.length%PC.length],
+    createdAt:new Date().toISOString(),
+    createdBy:currentUser?.email||'',
+    tasks:[], // 로컬에는 tasks 별도 저장
+  };
+
   setLoading(true);
-  try{await saveProject(project);if(tasks.length)await saveTasks(project.id,tasks);projects.push(project);allTasks=await loadTasks();renderSidebar();closeModal('newProjectModal');toast(`"${name}" 저장됨 (${tasks.length}개 작업)`);selectedPid=project.id;mNav('gantt',document.querySelectorAll('#topNav .nav-btn')[2]);}
-  catch(e){toast('저장 실패: '+e.message);}
+  try{
+    // 1. projects 전역에 먼저 추가 (saveTasks에서 projectName 참조용)
+    projects.push(project);
+
+    // 2. 프로젝트 저장
+    await saveProject(project);
+
+    // 3. 작업 저장 (tasks가 있을 때만)
+    if(tasks.length){
+      const saved=await saveTasks(pid, tasks);
+      // 로컬 project에도 tasks 반영
+      project.tasks=saved||tasks;
+      const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');
+      const pp=ps.find(x=>x.id===pid);
+      if(pp){pp.tasks=project.tasks;localStorage.setItem('pf_projects',JSON.stringify(ps));}
+    }
+
+    // 4. allTasks 갱신
+    allTasks=await loadTasks();
+    renderSidebar();
+    closeModal('newProjectModal');
+    selectedPid=pid;
+
+    // 저장 버튼 원래대로 복원
+    const saveBtn=document.querySelector('#newProjectModal .modal-actions .btn-primary');
+    if(saveBtn){saveBtn.textContent='💾 저장';saveBtn.onclick=saveNewProject;}
+
+    toast(`"${name}" 저장됨 (${tasks.length}개 공정)`);
+    mNav('gantt',document.querySelectorAll('#topNav .nav-btn')[2]);
+  }catch(e){
+    // 실패 시 전역에서 제거
+    projects=projects.filter(p=>p.id!==pid);
+    toast('저장 실패: '+e.message);
+  }
   setLoading(false);
 }
 
