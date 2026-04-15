@@ -629,43 +629,111 @@ async function loadProjects(){
   if(isSynced()){try{const r=await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'read',sheetName:'Projects'})});if(r.values&&r.values.length>1){const[,,...rows]=r.values;return rows.filter(r=>r[0]).map(r=>({id:r[0],name:r[1],client:r[2],pm:r[3],lead:r[4],start:r[5],end:r[6],desc:r[7],color:r[8]||PC[0],createdAt:r[9],createdBy:r[10]}));}}catch(e){console.warn('Sheets read fail',e.message);}}
   return JSON.parse(localStorage.getItem('pf_projects')||'[]');
 }
+
 async function loadTasks(){
-  if(isSynced()){try{const r=await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'read',sheetName:'Tasks'})});if(r.values&&r.values.length>1){const[,...rows]=r.values;return rows.filter(r=>r[0]).map(r=>({id:r[0],projectId:r[1],projectName:r[2],projectColor:r[3]||'#888',cat:r[4]||'기타',task:r[5],worker:r[6],weight:r[7],start:r[8],end:r[9],status:r[10]||'시작 전',memo:r[11]||'',actualEnd:r[12]||'',createdBy:r[13]||'',updatedAt:r[14]||'',key:r[0]}));}}catch(e){console.warn('Sheets read fail',e.message);}}
-  // 로컬 폴백 — projects 전역 변수가 이미 로드된 상태여야 함
-  const localProjects = JSON.parse(localStorage.getItem('pf_projects')||'[]');
+  if(isSynced()){
+    try{
+      const r=await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'read',sheetName:'Tasks'})});
+      if(r.values&&r.values.length>1){
+        const[,...rows]=r.values;
+        const tasks=rows.filter(r=>r[0]).map(r=>({
+          id:r[0],projectId:r[1],projectName:r[2],projectColor:r[3]||'#888',
+          cat:r[4]||'기타',task:r[5],worker:r[6],workerEmail:r[15]||'',
+          weight:r[7],start:r[8],end:r[9],status:r[10]||'시작 전',
+          memo:r[11]||'',actualEnd:r[12]||'',createdBy:r[13]||'',
+          updatedAt:r[14]||'',key:r[0],
+          workers:r[16]?r[16].split(','):[r[6]].filter(Boolean),
+          workerRole:r[17]||'',subtasks:r[18]?JSON.parse(r[18]):[],
+        }));
+        // TaskUpdates로 최신 상태 오버레이
+        return await overlayLatestStatus(tasks);
+      }
+    }catch(e){console.warn('Sheets read fail',e.message);}
+  }
+  // 로컬 폴백
+  const localProjects=JSON.parse(localStorage.getItem('pf_projects')||'[]');
   const sm=JSON.parse(localStorage.getItem('pf_task_status')||'{}');
   const tasks=[];
   for(const p of localProjects){
     for(const t of(p.tasks||[])){
       const k=t.key||`${p.id}_${t.task}_${t.worker}`;
-      tasks.push({...t,projectId:p.id,projectName:p.name,projectColor:p.color||'#888',status:sm[k]?.status||t.status||'시작 전',memo:sm[k]?.memo||t.memo||'',actualEnd:sm[k]?.actualEnd||t.actualEnd||'',key:k});
+      tasks.push({...t,projectId:p.id,projectName:p.name,projectColor:p.color||'#888',
+        status:sm[k]?.status||t.status||'시작 전',memo:sm[k]?.memo||t.memo||'',
+        actualEnd:sm[k]?.actualEnd||t.actualEnd||'',key:k,
+        workers:Array.isArray(t.workers)?t.workers:[t.worker].filter(Boolean),
+      });
     }
   }
   return tasks;
 }
+
+// TaskUpdates 시트의 최신 상태를 Tasks에 오버레이 (Sheets 연동 시)
+async function overlayLatestStatus(tasks){
+  try{
+    const r=await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'read',sheetName:'TaskUpdates'})});
+    if(!r.values||r.values.length<=1) return tasks;
+    // 헤더: updatedAt, updatedBy, taskKey, status, memo, actualEnd
+    const[,...rows]=r.values;
+    // taskKey별 최신 레코드만 (updatedAt 내림차순)
+    const latest={};
+    rows.filter(r=>r[2]).forEach(r=>{
+      const k=r[2];
+      if(!latest[k]||r[0]>latest[k].updatedAt)
+        latest[k]={updatedAt:r[0],updatedBy:r[1],status:r[3],memo:r[4],actualEnd:r[5]};
+    });
+    return tasks.map(t=>{
+      const u=latest[t.key];
+      return u?{...t,status:u.status||t.status,memo:u.memo||t.memo,actualEnd:u.actualEnd||t.actualEnd,updatedBy:u.updatedBy,updatedAt:u.updatedAt}:t;
+    });
+  }catch{ return tasks; }
+}
+
 async function saveProject(p){
   const row=[p.id,p.name,p.client,p.pm,p.lead,p.start,p.end,p.desc,p.color,p.createdAt,p.createdBy||currentUser?.email||''];
   if(isSynced()){try{await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'append',sheetName:'Projects',values:[row]})});syncBadge(true);return;}catch(e){console.warn(e.message);}}
   const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');const i=ps.findIndex(x=>x.id===p.id);if(i>=0)ps[i]=p;else ps.push(p);localStorage.setItem('pf_projects',JSON.stringify(ps));syncBadge(false);
 }
+
 async function saveTasks(pid,tasks){
   const p=projects.find(x=>x.id===pid);
-  // 각 task에 id와 key 부여
   const tasksWithKey=tasks.map(t=>{
     const id=t.id||`${pid}_${Date.now()}_${Math.random().toString(36).slice(2,5)}`;
     return {...t,id,key:t.key||id};
   });
-  const rows=tasksWithKey.map(t=>[t.id,pid,p?.name||'',p?.color||'',t.cat||'기타',t.task,t.worker||'',t.weight||'',t.start||'',t.end||'',t.status||'시작 전',t.memo||'',t.actualEnd||'',currentUser?.email||'',new Date().toISOString()]);
+  // 열 순서: id,projectId,projectName,projectColor,cat,task,worker,weight,start,end,status,memo,actualEnd,createdBy,updatedAt,workerEmail,workers,workerRole,subtasks
+  const rows=tasksWithKey.map(t=>[
+    t.id,pid,p?.name||'',p?.color||'',t.cat||'기타',t.task,
+    t.worker||'',t.weight||'',t.start||'',t.end||'',
+    t.status||'시작 전',t.memo||'',t.actualEnd||'',
+    currentUser?.email||'',new Date().toISOString(),
+    t.workerEmail||'',
+    Array.isArray(t.workers)?t.workers.join(','):(t.worker||''),
+    t.workerRole||'',
+    t.subtasks?JSON.stringify(t.subtasks):'',
+  ]);
   if(isSynced()){try{await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'append',sheetName:'Tasks',values:rows})});return tasksWithKey;}catch(e){console.warn(e.message);}}
-  // 로컬 저장 — project.tasks에 key 포함하여 저장
   const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');const proj=ps.find(x=>x.id===pid);
   if(proj){proj.tasks=tasksWithKey;localStorage.setItem('pf_projects',JSON.stringify(ps));}
   return tasksWithKey;
 }
+
+// ── 상태 업데이트 — Sheets TaskUpdates 기록 + 로컬 동기 ──────────
 async function updateStatus(key,upd){
-  if(isSynced()){try{await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'append',sheetName:'TaskUpdates',values:[[new Date().toISOString(),currentUser?.email||'',key,upd.status,upd.memo||'',upd.actualEnd||'']]})});}catch(e){console.warn(e.message);}}
-  const m=JSON.parse(localStorage.getItem('pf_task_status')||'{}');m[key]={...m[key]||{},...upd,updatedAt:new Date().toISOString()};localStorage.setItem('pf_task_status',JSON.stringify(m));
+  const now=new Date().toISOString();
+  const row=[now,currentUser?.email||'',key,upd.status,upd.memo||'',upd.actualEnd||''];
+
+  if(isSynced()){
+    try{
+      // 1. TaskUpdates에 이력 append (빠름)
+      await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'append',sheetName:'TaskUpdates',values:[row]})});
+    }catch(e){console.warn('TaskUpdates append 실패:',e.message);}
+  }
+  // 2. 항상 로컬에도 저장 (즉시 UI 반영용)
+  const m=JSON.parse(localStorage.getItem('pf_task_status')||'{}');
+  m[key]={...m[key]||{},...upd,updatedAt:now,updatedBy:currentUser?.email||''};
+  localStorage.setItem('pf_task_status',JSON.stringify(m));
 }
+
 function syncBadge(synced){const el=document.getElementById('syncBadge');if(!el)return;el.className=synced?'sheets-badge':'local-badge';el.textContent=synced?'● Sheets':'● 로컬';}
 
 // ══ APP RENDER ══
@@ -1232,17 +1300,26 @@ function openWorkerProjectDetail(pid,workerName){
   openModal('taskAssignWorkerModal');
 }
 
+// ── 로그인 사용자 이메일로 내 작업 필터 ──────────────────────────
+function isMyTask(t){
+  const email=currentUser?.email||'';
+  const name=currentUser?.name||currentUser?.email?.split('@')[0]||'';
+  return (
+    t.workerEmail===email ||
+    t.worker===email ||
+    t.worker===name ||
+    (Array.isArray(t.workers)&&(t.workers.includes(email)||t.workers.includes(name))) ||
+    (t.subtasks||[]).some(s=>s.workerEmail===email||s.worker===email||s.worker===name)
+  );
+}
+
 // ══ 작업자 패널 ══
 function renderWorkerPanel(panel){
   const c=document.getElementById('workerContent');
   const mn=currentUser.name||currentUser.email.split('@')[0];
-  // 내 작업: 이름 또는 이메일로 매칭
-  const my=allTasks.filter(t=>
-    t.worker===mn||t.worker===currentUser.email||t.worker===currentUser.name||
-    (Array.isArray(t.workers)&&(t.workers.includes(mn)||t.workers.includes(currentUser.email)))
-  );
-  if(panel==='myTasks')    c.innerHTML=myTasksHTML(my,mn);
-  else if(panel==='gantt') c.innerHTML=workerGanttHTML(mn);
+  const my=allTasks.filter(t=>isMyTask(t));
+  if(panel==='myTasks')     c.innerHTML=myTasksHTML(my,mn);
+  else if(panel==='gantt')  c.innerHTML=workerGanttHTML(mn);
   else if(panel==='allSchedule') c.innerHTML=allScheduleHTML(mn);
   else if(panel==='update') c.innerHTML=updateHTML(my,mn);
 }
@@ -1363,26 +1440,25 @@ function workerGanttHTML(mn){
     lH+=`<div class="g-cat-row" style="background:${c.bg}30;border-left:3px solid ${c.fg};">${cat}</div>`;
     rH+=`<div style="height:28px;background:${c.bg}20;border-bottom:1px solid var(--rule);position:relative;">${gridLines}</div>`;
     tasks.forEach(t=>{
-      const isMyTask=t.worker===mn||t.worker===currentUser.email||(Array.isArray(t.workers)&&(t.workers.includes(mn)||t.workers.includes(currentUser.email)));
+      const myTask=isMyTask(t);
       const tS=new Date(t.start||project.start);tS.setHours(0,0,0,0);
       const tE=new Date(t.end||project.end);tE.setHours(23,59,59,0);
       const barX=Math.max(0,(tS-gridStart)/86400000*DAY_W);
       const barW=Math.max(DAY_W,(tE-tS+86400000)/86400000*DAY_W);
-      // 내 작업이면 강조, 아니면 연하게
-      const barBg=isMyTask?c.fg:`${c.fg}55`;
-      const rowBg=isMyTask?`${c.bg}40`:'';
-      const myDot=isMyTask?`<span style="width:6px;height:6px;border-radius:50%;background:${c.fg};flex-shrink:0;display:inline-block;"></span>`:'';
+      const barBg=myTask?c.fg:`${c.fg}55`;
+      const rowBg=myTask?`${c.bg}40`:'';
+      const myDot=myTask?`<span style="width:6px;height:6px;border-radius:50%;background:${c.fg};flex-shrink:0;display:inline-block;"></span>`:'';
 
       lH+=`<div class="g-row" style="background:${rowBg};">
         ${myDot}
-        <span class="g-name" style="font-weight:${isMyTask?600:400};color:${isMyTask?'var(--ink)':'var(--ink2)'};">${t.task}</span>
-        <span class="g-worker" style="font-size:10.5px;${isMyTask?`color:${c.fg};font-weight:600`:''}">${t.worker||'-'}</span>
+        <span class="g-name" style="font-weight:${myTask?600:400};color:${myTask?'var(--ink)':'var(--ink2)'};">${t.task}</span>
+        <span class="g-worker" style="font-size:10.5px;${myTask?`color:${c.fg};font-weight:600`:''}">${t.worker||'-'}</span>
         <span class="status-badge ${sc(t.status)}" style="font-size:9.5px;padding:1px 6px;">${t.status}</span>
       </div>`;
       rH+=`<div style="height:34px;position:relative;">
         ${gridLines}
         ${showToday?`<div style="position:absolute;left:${todayX}px;top:0;bottom:0;width:2px;background:var(--accent);opacity:.6;z-index:4;pointer-events:none;"></div>`:''}
-        <div style="position:absolute;left:${barX}px;width:${barW}px;height:18px;top:50%;transform:translateY(-50%);background:${barBg};border-radius:3px;z-index:3;${isMyTask?'box-shadow:0 2px 6px rgba(0,0,0,.18);':''};overflow:hidden;display:flex;align-items:center;padding:0 6px;font-size:10px;font-weight:500;color:white;white-space:nowrap;">
+        <div style="position:absolute;left:${barX}px;width:${barW}px;height:18px;top:50%;transform:translateY(-50%);background:${barBg};border-radius:3px;z-index:3;${myTask?'box-shadow:0 2px 6px rgba(0,0,0,.18);':''};overflow:hidden;display:flex;align-items:center;padding:0 6px;font-size:10px;font-weight:500;color:white;white-space:nowrap;">
           ${barW>60?t.task:''}
         </div>
       </div>`;
@@ -1448,12 +1524,12 @@ function allScheduleHTML(mn){
           <div style="overflow-x:auto"><table class="task-table">
             <thead><tr><th>카테고리</th><th>공정</th><th>담당자</th><th>상태</th><th>시작</th><th>마감</th></tr></thead>
             <tbody>${pt.map(t=>{
-              const isMe=t.worker===mn||t.worker===currentUser.email||(Array.isArray(t.workers)&&(t.workers.includes(mn)||t.workers.includes(currentUser.email)));
-              return`<tr style="background:${isMe?`${cc(t.cat).bg}30`:''};">
+              const me=isMyTask(t);
+              return`<tr style="background:${me?`${cc(t.cat).bg}30`:''};">
                 <td><span class="cat-chip" style="background:${cc(t.cat).bg};color:${cc(t.cat).fg}">${t.cat||'-'}</span></td>
-                <td style="font-weight:${isMe?600:400};">${isMe?'★ ':''}<span>${t.task}</span></td>
-                <td style="color:${isMe?cc(t.cat).fg:'var(--ink2)'};font-weight:${isMe?600:400}">${t.worker||'미배치'}</td>
-                <td><span class="status-badge ${sc(t.status)}" ${isMe?`onclick="openTU('${t.key}')" style="cursor:pointer"`:''} >${t.status}${isMe?' ✏️':''}</span></td>
+                <td style="font-weight:${me?600:400};">${me?'★ ':''}<span>${t.task}</span></td>
+                <td style="color:${me?cc(t.cat).fg:'var(--ink2)'};font-weight:${me?600:400}">${t.worker||'미배치'}</td>
+                <td><span class="status-badge ${sc(t.status)}" ${me?`onclick="openTU('${t.key}')" style="cursor:pointer"`:''} >${t.status}${me?' ✏️':''}</span></td>
                 <td style="font-family:'DM Mono',monospace;font-size:11.5px;color:var(--ink2)">${t.start||'-'}</td>
                 <td style="font-family:'DM Mono',monospace;font-size:11.5px;color:var(--ink2)">${t.end||'-'}</td>
               </tr>`;
@@ -1708,13 +1784,34 @@ async function saveTaskDetail(){
 }
 
 // ══ 작업 상태 업데이트 ══
-function openTU(key){const t=allTasks.find(t=>t.key===key);if(!t)return;document.getElementById('tuTitle').textContent=t.task;document.getElementById('tu-key').value=key;document.getElementById('tu-status').value=t.status||'시작 전';document.getElementById('tu-memo').value=t.memo||'';document.getElementById('tu-end').value=t.actualEnd||'';openModal('taskUpdateModal');}
+function openTU(key){
+  const t=allTasks.find(t=>t.key===key);if(!t)return;
+  document.getElementById('tuTitle').textContent=t.task;
+  document.getElementById('tu-key').value=key;
+  document.getElementById('tu-status').value=t.status||'시작 전';
+  document.getElementById('tu-memo').value=t.memo||'';
+  document.getElementById('tu-end').value=t.actualEnd||'';
+  openModal('taskUpdateModal');
+}
 async function submitTaskUpdate(){
-  const key=document.getElementById('tu-key').value,status=document.getElementById('tu-status').value,memo=document.getElementById('tu-memo').value.trim(),end=document.getElementById('tu-end').value;
-  setLoading(true);await updateStatus(key,{status,memo,actualEnd:end});
-  const t=allTasks.find(t=>t.key===key);if(t){t.status=status;t.memo=memo;t.actualEnd=end;}
-  closeModal('taskUpdateModal');toast('✓ 상태 업데이트');
-  if(currentUser.role==='manager')renderMgr('tasks');else renderWorkerPanel('update');
+  const key=document.getElementById('tu-key').value;
+  const status=document.getElementById('tu-status').value;
+  const memo=document.getElementById('tu-memo').value.trim();
+  const end=document.getElementById('tu-end').value;
+  setLoading(true);
+  await updateStatus(key,{status,memo,actualEnd:end});
+  // allTasks 즉시 반영 (UI 즉시 갱신)
+  const t=allTasks.find(t=>t.key===key);
+  if(t){t.status=status;t.memo=memo;t.actualEnd=end;t.updatedBy=currentUser?.email||'';t.updatedAt=new Date().toISOString();}
+  closeModal('taskUpdateModal');
+  toast(`✓ "${t?.task||'작업'}" 상태가 "${status}"로 업데이트됐습니다`);
+  if(currentUser.role==='manager'){
+    renderMgr('tasks');
+  } else {
+    const mn=currentUser.name||currentUser.email.split('@')[0];
+    const my=allTasks.filter(t=>isMyTask(t));
+    document.getElementById('workerContent').innerHTML=updateHTML(my,mn);
+  }
   setLoading(false);
 }
 
