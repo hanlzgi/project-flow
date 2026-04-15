@@ -317,6 +317,73 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
   </div>
 </div>
 
+<!-- 작업자 마스터 등록/편집 모달 -->
+<div class="modal-overlay" id="workerMasterModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('workerMasterModal')">×</button>
+    <h3 id="wmTitle">작업자 등록</h3>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">이름 *</label>
+          <input class="form-input" id="wm-name" placeholder="예: 박윤서">
+        </div>
+        <div class="form-group">
+          <label class="form-label">구분</label>
+          <select class="form-select" id="wm-type">
+            <option value="internal">내부 직원</option>
+            <option value="external">외주</option>
+            <option value="team">팀</option>
+          </select>
+        </div>
+        <div class="form-group full">
+          <label class="form-label">역할 / 전문 분야</label>
+          <input class="form-input" id="wm-role" placeholder="예: 영상편집, 모션그래픽">
+        </div>
+        <div class="form-group full">
+          <label class="form-label">이메일 (알림용)</label>
+          <input class="form-input" id="wm-email" type="email" placeholder="worker@company.com">
+        </div>
+        <div class="form-group full">
+          <label class="form-label">보유 스킬 (쉼표로 구분)</label>
+          <input class="form-input" id="wm-skills" placeholder="예: 2D애니메이션, 콘티, 영상편집">
+        </div>
+        <div class="form-group full">
+          <label class="form-label">메모</label>
+          <textarea class="form-textarea" id="wm-memo" rows="2" placeholder="단가, 계약 기간, 특이사항 등"></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button id="wmDeleteBtn" class="btn" style="display:none;background:var(--alt);color:var(--accent);margin-right:auto;" onclick="deleteWorkerMaster()">🗑 삭제</button>
+      <button class="btn btn-secondary" onclick="closeModal('workerMasterModal')">취소</button>
+      <button class="btn btn-primary" onclick="saveWorkerMasterModal()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 공정 배치 모달 (작업자 기준) -->
+<div class="modal-overlay" id="taskAssignWorkerModal">
+  <div class="modal" style="width:560px;">
+    <button class="modal-close" onclick="closeModal('taskAssignWorkerModal')">×</button>
+    <h3 id="tawTitle">공정 배치</h3>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label class="form-label">프로젝트 선택</label>
+      <select class="form-select" id="taw-project" onchange="loadTawTasks()">
+        <option value="">프로젝트 선택...</option>
+      </select>
+    </div>
+    <div id="tawTaskList" style="max-height:320px;overflow-y:auto;"></div>
+    <div style="background:var(--blue-lt);border-radius:6px;padding:9px 12px;font-size:12px;color:var(--blue);margin-top:10px;">
+      💡 체크한 공정에 이 작업자가 배치됩니다. 하나의 공정에 여러 작업자를 배치할 수 있습니다.
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('taskAssignWorkerModal')">취소</button>
+      <button class="btn btn-primary" onclick="saveTaskAssignByWorker()">배치 저장</button>
+    </div>
+  </div>
+</div>
+
 <!-- 작업자 지정 모달 -->
 <div class="modal-overlay" id="assignModal">
   <div class="modal">
@@ -483,7 +550,12 @@ function renderApp(){
 }
 function renderManagerApp(){
   document.getElementById('managerLayout').style.display='grid';document.getElementById('workerLayout').style.display='none';
-  document.getElementById('topNav').innerHTML=`<button class="nav-btn active" onclick="mNav('dashboard',this)">📊 대시보드</button><button class="nav-btn" onclick="mNav('gantt',this)">📅 공정표</button><button class="nav-btn" onclick="mNav('tasks',this)">📋 전체 작업</button><button class="nav-btn" onclick="mNav('workers',this)">👥 작업자</button>`;
+  document.getElementById('topNav').innerHTML=`
+    <button class="nav-btn active" onclick="mNav('dashboard',this)">📊 대시보드</button>
+    <button class="nav-btn" onclick="mNav('tasks',this)">📋 전체 작업</button>
+    <button class="nav-btn" onclick="mNav('gantt',this)">📅 공정표</button>
+    <button class="nav-btn" onclick="mNav('workers',this)">👥 작업자</button>
+  `;
   loadAndRender();
 }
 function renderWorkerApp(){
@@ -501,7 +573,7 @@ function wNav(p,btn){document.querySelectorAll('#topNav .nav-btn').forEach(b=>b.
 
 // ══ 관리자 패널 ══
 function renderSidebar(){const el=document.getElementById('projectSidebar');if(!projects.length){el.innerHTML=`<div style="padding:16px;font-size:12px;color:var(--ink3)">프로젝트를 추가하세요</div>`;return;}el.innerHTML=projects.map(p=>`<div class="s-item ${p.id===selectedPid?'active':''}" onclick="selectProj('${p.id}')"><div class="s-item-name"><span class="s-dot" style="background:${p.color}"></span>${p.name}</div><div class="s-item-meta">${p.end||''}</div></div>`).join('');}
-function selectProj(id){selectedPid=id;renderSidebar();mNav('gantt',document.querySelectorAll('#topNav .nav-btn')[1]);}
+function selectProj(id){selectedPid=id;renderSidebar();mNav('gantt',document.querySelectorAll('#topNav .nav-btn')[2]);}
 function renderMgr(panel){const c=document.getElementById('managerContent');if(panel==='dashboard')c.innerHTML=dashHTML();else if(panel==='gantt')c.innerHTML=ganttHTML();else if(panel==='tasks')c.innerHTML=tasksHTML();else if(panel==='workers')c.innerHTML=workersHTML();}
 
 function dashHTML(){
@@ -658,10 +730,99 @@ function tasksHTML(){
 }
 
 function workersHTML(){
-  const wm={};allTasks.forEach(t=>{if(!wm[t.worker])wm[t.worker]={tasks:[],projs:new Set()};wm[t.worker].tasks.push(t);wm[t.worker].projs.add(t.projectName);});
-  return`<div class="page-wrap"><div class="page-hd"><h1>작업자 현황</h1></div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;">
-      ${Object.entries(wm).map(([n,d])=>{const done=d.tasks.filter(t=>t.status==='완료').length,rev=d.tasks.filter(t=>t.status==='검토 요청').length,pct=Math.round(done/d.tasks.length*100);return`<div class="card"><div class="card-hd">${n}${rev?`<span class="status-badge s-review">${rev}건</span>`:''}</div><div class="card-body"><div class="prog-item"><div class="prog-label"><span>${done}/${d.tasks.length}</span><span style="font-weight:600">${pct}%</span></div><div class="prog-track"><div class="prog-fill" style="width:${pct}%;background:var(--green)"></div></div></div><div style="font-size:11.5px;color:var(--ink2)">참여: ${[...d.projs].join(', ')}</div></div></div>`;}).join('')||'<div style="color:var(--ink3)">데이터 없음</div>'}
+  const wm=getWorkerMaster();
+  const tasksByWorker={};
+  allTasks.forEach(t=>{
+    const workers=Array.isArray(t.workers)?t.workers:[t.worker].filter(Boolean);
+    workers.forEach(w=>{if(!tasksByWorker[w])tasksByWorker[w]=[];tasksByWorker[w].push(t);});
+  });
+
+  return`<div class="page-wrap">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px;">
+      <div class="page-hd" style="margin:0"><h1>작업자 관리</h1><p style="font-size:12.5px;color:var(--ink2);margin-top:3px;">인력 등록·수정 및 프로젝트별 공정 배치를 관리합니다</p></div>
+      <button class="btn btn-primary" onclick="openWorkerMasterModal()">＋ 작업자 등록</button>
+    </div>
+
+    <!-- 인력 마스터 카드 목록 -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-bottom:28px;">
+      ${wm.length?wm.map(w=>{
+        const wt=tasksByWorker[w.name]||[];
+        const done=wt.filter(t=>t.status==='완료').length;
+        const wip=wt.filter(t=>t.status==='진행 중').length;
+        const rev=wt.filter(t=>t.status==='검토 요청').length;
+        const pct=wt.length?Math.round(done/wt.length*100):0;
+        const projs=[...new Set(wt.map(t=>t.projectName))];
+        return`<div class="card" style="position:relative;">
+          <div class="card-hd" style="gap:8px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div style="width:32px;height:32px;border-radius:8px;background:${w.color||'var(--blue)'};display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:white;flex-shrink:0;">${w.name[0]}</div>
+              <div>
+                <div style="font-weight:600;font-size:13.5px;">${w.name}</div>
+                <div style="font-size:11px;color:var(--ink3);">${w.role||'역할 미지정'} · <span style="color:${w.type==='internal'?'var(--green)':w.type==='external'?'var(--accent)':'var(--purple)'}">${w.type==='internal'?'내부':w.type==='external'?'외주':'팀'}</span></div>
+              </div>
+            </div>
+            <div style="display:flex;gap:4px;">
+              <button onclick="openWorkerMasterModal('${w.id}')" style="padding:3px 8px;font-size:11px;border:1px solid var(--rule);border-radius:4px;background:transparent;cursor:pointer;">편집</button>
+              <button onclick="openTaskAssignByWorker('${w.id}')" style="padding:3px 8px;font-size:11px;border:1px solid var(--blue-lt);border-radius:4px;background:var(--blue-lt);color:var(--blue);cursor:pointer;">공정 배치</button>
+            </div>
+          </div>
+          <div class="card-body" style="padding-top:10px;">
+            ${wt.length?`
+              <div class="prog-item" style="margin-bottom:8px;">
+                <div class="prog-label"><span style="font-size:12px;">담당 작업 ${wt.length}건</span><span style="font-weight:600;font-size:12px;">${pct}%</span></div>
+                <div class="prog-track"><div class="prog-fill" style="width:${pct}%;background:${w.color||'var(--green)'}"></div></div>
+              </div>
+              <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;">
+                ${wip?`<span class="status-badge s-wip" style="font-size:10.5px;">${wip}진행</span>`:''}
+                ${rev?`<span class="status-badge s-review" style="font-size:10.5px;">${rev}검토</span>`:''}
+                ${done?`<span class="status-badge s-done" style="font-size:10.5px;">${done}완료</span>`:''}
+              </div>
+              ${projs.length?`<div style="font-size:11.5px;color:var(--ink2);">참여: ${projs.slice(0,3).join(', ')}${projs.length>3?` 외 ${projs.length-3}개`:''}</div>`:''}
+            `:`<div style="font-size:12px;color:var(--ink3);">배정된 작업 없음</div>`}
+            ${w.email?`<div style="margin-top:6px;font-size:11px;color:var(--ink3);">📧 ${w.email}</div>`:''}
+            ${w.skills?`<div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap;">${w.skills.split(',').map(s=>`<span style="padding:1px 6px;background:var(--bg);border:1px solid var(--rule);border-radius:10px;font-size:10.5px;color:var(--ink2);">${s.trim()}</span>`).join('')}</div>`:''}
+          </div>
+        </div>`;
+      }).join(''):`
+        <div style="grid-column:1/-1;" class="empty-state">
+          <div class="ei">👥</div>
+          <p>등록된 작업자가 없습니다<br><small style="color:var(--ink3)">작업자를 먼저 등록하면 프로젝트에 배치할 수 있습니다</small></p>
+          <br><button class="btn btn-primary" onclick="openWorkerMasterModal()">＋ 작업자 등록</button>
+        </div>`}
+    </div>
+
+    <!-- 프로젝트별 공정 배치 현황 -->
+    <div class="card">
+      <div class="card-hd">📋 프로젝트별 공정 배치 현황</div>
+      <div class="card-body" style="padding:0;">
+        ${projects.map(p=>{
+          const pt=allTasks.filter(t=>t.projectId===p.id);
+          if(!pt.length)return`<div style="padding:12px 16px;border-bottom:1px solid var(--rule);font-size:13px;color:var(--ink2)"><span style="font-weight:500">${p.name}</span> <span style="color:var(--ink3);font-size:12px;">— 작업 없음</span> <button onclick="openEditProjectModal('${p.id}')" style="margin-left:8px;padding:2px 8px;font-size:11px;border:1px solid var(--rule);border-radius:4px;background:transparent;cursor:pointer;">＋ 작업 추가</button></div>`;
+          const byWorker={};
+          pt.forEach(t=>{
+            const workers=Array.isArray(t.workers)?t.workers:[t.worker||'미지정'];
+            workers.forEach(w=>{if(!byWorker[w])byWorker[w]=[];byWorker[w].push(t);});
+          });
+          return`<div style="padding:12px 16px;border-bottom:1px solid var(--rule);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+              <div style="font-weight:600;font-size:13.5px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};margin-right:6px;vertical-align:middle;"></span>${p.name}</div>
+              <div style="display:flex;gap:6px;">
+                <span style="font-size:11.5px;color:var(--ink2);">${pt.length}개 공정</span>
+                <button onclick="openEditProjectModal('${p.id}')" style="padding:2px 8px;font-size:11px;border:1px solid var(--rule);border-radius:4px;background:transparent;cursor:pointer;">편집</button>
+              </div>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;">
+              ${Object.entries(byWorker).map(([w,ts])=>`
+                <div style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:var(--bg);border:1px solid var(--rule);border-radius:20px;font-size:12px;">
+                  <span style="font-weight:500">${w}</span>
+                  <span style="color:var(--ink3)">${ts.length}건</span>
+                  <span class="status-badge ${sc(ts[ts.length-1]?.status||'시작 전')}" style="font-size:10px;padding:1px 6px;">${ts[ts.length-1]?.status||'시작 전'}</span>
+                </div>`).join('')}
+              <button onclick="openAddTaskToProject('${p.id}')" style="padding:4px 10px;font-size:11.5px;border:1px dashed var(--rule);border-radius:20px;background:transparent;color:var(--ink2);cursor:pointer;">＋ 공정 추가</button>
+            </div>
+          </div>`;
+        }).join('')||`<div style="padding:20px;color:var(--ink3);text-align:center;font-size:13px;">프로젝트가 없습니다</div>`}
+      </div>
     </div>
   </div>`;
 }
@@ -794,7 +955,7 @@ async function saveNewProject(){
   const tasks=getTableTasks();
   const project={id:'p'+Date.now(),name,client:document.getElementById('np-client').value,pm:document.getElementById('np-pm').value,lead:document.getElementById('np-lead').value,start:document.getElementById('np-start').value,end,desc:document.getElementById('np-desc').value,color:PC[projects.length%PC.length],createdAt:new Date().toISOString(),createdBy:currentUser?.email||'',tasks};
   setLoading(true);
-  try{await saveProject(project);if(tasks.length)await saveTasks(project.id,tasks);projects.push(project);allTasks=await loadTasks();renderSidebar();closeModal('newProjectModal');toast(`"${name}" 저장됨 (${tasks.length}개 작업)`);selectedPid=project.id;mNav('gantt',document.querySelectorAll('#topNav .nav-btn')[1]);}
+  try{await saveProject(project);if(tasks.length)await saveTasks(project.id,tasks);projects.push(project);allTasks=await loadTasks();renderSidebar();closeModal('newProjectModal');toast(`"${name}" 저장됨 (${tasks.length}개 작업)`);selectedPid=project.id;mNav('gantt',document.querySelectorAll('#topNav .nav-btn')[2]);}
   catch(e){toast('저장 실패: '+e.message);}
   setLoading(false);
 }
@@ -854,8 +1015,13 @@ function saveSheets(){
   const url=document.getElementById('sheets-url').value.trim();if(!url){toast('URL 입력');return;}
   const m=url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);const id=m?m[1]:url;
   localStorage.setItem('pf_sheets_id',id);closeModal('sheetsModal');syncBadge(true);
-  toast('✓ Sheets 연동됨. Vercel 환경변수 GOOGLE_SHEET_ID도 동일 값으로 설정하세요.');
+  // 안내 메시지 표시
+  showSheetsGuide(id);
   initSheetHeaders();
+}
+function showSheetsGuide(sheetId){
+  const msg=`✅ Google Sheets 연동 저장됨!\n\n이제 Vercel에서 한 가지만 더 설정해야 합니다:\n\n1. vercel.com 접속 → project-flow 클릭\n2. Settings → Environment Variables\n3. 아래 값 추가 또는 수정:\n   이름: GOOGLE_SHEET_ID\n   값: ${sheetId}\n4. Redeploy (Deployments → ··· → Redeploy)\n\n완료되면 모든 데이터가 Google Sheets에 저장됩니다.`;
+  alert(msg);
 }
 async function initSheetHeaders(){
   try{
@@ -864,6 +1030,159 @@ async function initSheetHeaders(){
     await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'append',sheetName:'TaskUpdates',values:[['updatedAt','updatedBy','taskKey','status','memo','actualEnd']]})});
     toast('✓ Sheets 초기 구조 생성됨');
   }catch(e){console.warn(e.message);}
+}
+
+// ══ 인력 마스터 DB ══
+const WORKER_COLORS=['#1e5fa8','#c8521a','#2a7a4b','#7c4ba0','#c89a1a','#a0531e','#1e6878','#5a2a7a','#2a5a8a','#7a2a2a'];
+
+function getWorkerMaster(){
+  return JSON.parse(localStorage.getItem('pf_workers')||'[]');
+}
+function saveWorkerMaster(wm){
+  localStorage.setItem('pf_workers',JSON.stringify(wm));
+  // Sheets 연동 시 별도 시트에 저장 (비동기)
+  if(isSynced()){
+    api('/api/sheets',{method:'POST',body:JSON.stringify({action:'append',sheetName:'Workers',values:wm.map(w=>[w.id,w.name,w.role,w.type,w.email,w.skills,w.color,w.memo,w.createdAt])})}).catch(()=>{});
+  }
+}
+
+let _editWorkerId=null;
+function openWorkerMasterModal(id=null){
+  _editWorkerId=id;
+  const wm=getWorkerMaster();
+  const w=id?wm.find(x=>x.id===id):null;
+  document.getElementById('wmTitle').textContent=id?'작업자 편집':'작업자 등록';
+  document.getElementById('wm-name').value=w?.name||'';
+  document.getElementById('wm-role').value=w?.role||'';
+  document.getElementById('wm-type').value=w?.type||'internal';
+  document.getElementById('wm-email').value=w?.email||'';
+  document.getElementById('wm-skills').value=w?.skills||'';
+  document.getElementById('wm-memo').value=w?.memo||'';
+  if(id){
+    document.getElementById('wmDeleteBtn').style.display='inline-flex';
+  } else {
+    document.getElementById('wmDeleteBtn').style.display='none';
+  }
+  openModal('workerMasterModal');
+}
+function saveWorkerMasterModal(){
+  const name=document.getElementById('wm-name').value.trim();
+  if(!name){toast('이름을 입력하세요');return;}
+  const wm=getWorkerMaster();
+  if(_editWorkerId){
+    const w=wm.find(x=>x.id===_editWorkerId);
+    if(w){
+      w.name=name;w.role=document.getElementById('wm-role').value.trim();
+      w.type=document.getElementById('wm-type').value;
+      w.email=document.getElementById('wm-email').value.trim();
+      w.skills=document.getElementById('wm-skills').value.trim();
+      w.memo=document.getElementById('wm-memo').value.trim();
+    }
+  } else {
+    wm.push({
+      id:'w'+Date.now(),name,
+      role:document.getElementById('wm-role').value.trim(),
+      type:document.getElementById('wm-type').value,
+      email:document.getElementById('wm-email').value.trim(),
+      skills:document.getElementById('wm-skills').value.trim(),
+      memo:document.getElementById('wm-memo').value.trim(),
+      color:WORKER_COLORS[wm.length%WORKER_COLORS.length],
+      createdAt:new Date().toISOString()
+    });
+  }
+  saveWorkerMaster(wm);
+  closeModal('workerMasterModal');
+  toast(`✓ ${name} ${_editWorkerId?'수정':'등록'}됨`);
+  renderMgr('workers');
+}
+function deleteWorkerMaster(){
+  if(!_editWorkerId)return;
+  if(!confirm('정말 삭제하시겠습니까?'))return;
+  const wm=getWorkerMaster().filter(x=>x.id!==_editWorkerId);
+  saveWorkerMaster(wm);
+  closeModal('workerMasterModal');
+  toast('삭제됨');
+  renderMgr('workers');
+}
+
+// ══ 공정 세분화 — 작업자 기준 배치 모달 ══
+let _assignWorkerId=null;
+function openTaskAssignByWorker(wid){
+  _assignWorkerId=wid;
+  const wm=getWorkerMaster();const w=wm.find(x=>x.id===wid);
+  if(!w)return;
+  document.getElementById('tawTitle').textContent=`${w.name} — 공정 배치`;
+  // 프로젝트 선택 채우기
+  const sel=document.getElementById('taw-project');
+  sel.innerHTML=`<option value="">프로젝트 선택...</option>${projects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}`;
+  document.getElementById('tawTaskList').innerHTML='';
+  openModal('taskAssignWorkerModal');
+}
+function loadTawTasks(){
+  const pid=document.getElementById('taw-project').value;
+  const list=document.getElementById('tawTaskList');
+  if(!pid){list.innerHTML='';return;}
+  const pt=allTasks.filter(t=>t.projectId===pid);
+  if(!pt.length){list.innerHTML=`<div style="color:var(--ink3);font-size:12.5px;padding:10px 0;">이 프로젝트에 작업이 없습니다. 먼저 작업을 추가하세요.</div>`;return;}
+  const wm=getWorkerMaster();const w=wm.find(x=>x.id===_assignWorkerId);
+  list.innerHTML=`<div style="font-size:11.5px;font-weight:600;color:var(--ink2);margin-bottom:8px;">공정을 선택하고 세부 역할을 입력하세요:</div>`+
+    pt.map(t=>{
+      const isAssigned=t.worker===w?.name||t.workerEmail===w?.email||(Array.isArray(t.workers)&&t.workers.includes(w?.name));
+      return`<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--rule);">
+        <input type="checkbox" class="taw-chk" data-key="${t.key}" ${isAssigned?'checked':''}>
+        <div style="flex:1;">
+          <div style="font-size:12.5px;font-weight:500;">${t.task}</div>
+          <div style="font-size:11px;color:var(--ink3);">${t.cat||'기타'} · ${t.start||'?'} ~ ${t.end||'?'}</div>
+        </div>
+        <input placeholder="세부 역할 (예: 콘티, 원화)" style="width:130px;padding:4px 8px;border:1px solid var(--rule);border-radius:4px;font-size:12px;font-family:inherit;outline:none;" class="taw-role" data-key="${t.key}" value="${isAssigned&&t.workerRole||''}">
+        <span class="status-badge ${sc(t.status)}" style="font-size:10px;">${t.status}</span>
+      </div>`;
+    }).join('');
+}
+async function saveTaskAssignByWorker(){
+  const pid=document.getElementById('taw-project').value;
+  if(!pid){toast('프로젝트를 선택하세요');return;}
+  const wm=getWorkerMaster();const w=wm.find(x=>x.id===_assignWorkerId);
+  if(!w)return;
+  const checked=[...document.querySelectorAll('.taw-chk:checked')].map(c=>c.dataset.key);
+  const roles={};document.querySelectorAll('.taw-role').forEach(r=>roles[r.dataset.key]=r.value.trim());
+
+  // allTasks 업데이트
+  let changed=0;
+  allTasks.forEach(t=>{
+    if(t.projectId!==pid)return;
+    if(checked.includes(t.key)){
+      // 복수 작업자 지원 — workers 배열에 추가
+      if(!Array.isArray(t.workers))t.workers=t.worker?[t.worker]:[];
+      if(!t.workers.includes(w.name))t.workers.push(w.name);
+      t.worker=t.workers[0]; // 기본 담당자는 첫 번째
+      if(roles[t.key])t.workerRole=roles[t.key];
+      if(w.email)t.workerEmail=w.email;
+      changed++;
+    }
+  });
+
+  // 로컬 저장
+  const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');
+  const proj=ps.find(x=>x.id===pid);
+  if(proj&&proj.tasks){
+    proj.tasks.forEach(pt=>{
+      const at=allTasks.find(t=>t.key===pt.key||t.task===pt.task);
+      if(at){pt.workers=at.workers;pt.worker=at.worker;pt.workerRole=at.workerRole;pt.workerEmail=at.workerEmail;}
+    });
+    localStorage.setItem('pf_projects',JSON.stringify(ps));
+  }
+
+  closeModal('taskAssignWorkerModal');
+  toast(`✓ ${w.name}님에게 ${changed}개 공정 배치됨`);
+  renderMgr('workers');
+}
+
+// ══ 공정 추가 (작업자 탭에서 바로) ══
+function openAddTaskToProject(pid){
+  const p=projects.find(x=>x.id===pid);
+  if(!p){toast('프로젝트를 찾을 수 없습니다');return;}
+  openEditProjectModal(pid);
 }
 
 // ══ 공정표 코멘트 ══
@@ -1020,7 +1339,7 @@ async function updateExistingProject(pid){
     const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');const i=ps.findIndex(x=>x.id===pid);if(i>=0)ps[i]=p;localStorage.setItem('pf_projects',JSON.stringify(ps));
     await saveTasks(pid,tasks);allTasks=await loadTasks();renderSidebar();closeModal('newProjectModal');
     toast(`"${name}" 업데이트됨 (${tasks.length}개 작업)`);selectedPid=pid;
-    mNav('gantt',document.querySelectorAll('#topNav .nav-btn')[1]);
+    mNav('gantt',document.querySelectorAll('#topNav .nav-btn')[2]);
     // 저장 버튼 원래대로
     const saveBtn=document.querySelector('#newProjectModal .modal-actions .btn-primary');
     if(saveBtn){saveBtn.textContent='💾 저장';saveBtn.onclick=saveNewProject;}
