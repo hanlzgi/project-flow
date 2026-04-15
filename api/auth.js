@@ -9,17 +9,19 @@ export default async function handler(req, res) {
     if (!email || !email.includes('@')) {
       return res.status(400).json({ error: '유효한 이메일 필요' });
     }
-    const role = getRole(email);
 
-    // Workers 시트에서 이 이메일로 등록된 작업자 이름 조회
+    // Workers 시트에서 이 이메일로 등록된 작업자 정보 조회
     const workerInfo = await lookupWorkerByEmail(email);
+
+    // 역할 결정: Workers.systemRole 우선 → ADMIN_EMAILS 환경변수 fallback
+    const role = workerInfo?.systemRole || getRole(email);
 
     const user = {
       email,
-      name:    workerInfo?.name || email.split('@')[0], // 마스터에 등록된 이름 우선
-      picture: '',
+      name:       workerInfo?.name || email.split('@')[0],
+      picture:    '',
       role,
-      workerName: workerInfo?.name || '',  // 작업자 등록 이름 (task 매칭용)
+      workerName: workerInfo?.name || '',
       workerId:   workerInfo?.id   || '',
     };
     const token = makeSessionToken(user);
@@ -30,11 +32,8 @@ export default async function handler(req, res) {
   if (action === 'verifyIdToken' && credential) {
     try {
       const googleUser = await verifyGoogleIdToken(credential);
-      const role = getRole(googleUser.email);
-
-      // Workers 시트에서 이메일로 등록된 작업자 이름 조회
       const workerInfo = await lookupWorkerByEmail(googleUser.email);
-
+      const role = workerInfo?.systemRole || getRole(googleUser.email);
       const user = {
         email:      googleUser.email,
         name:       workerInfo?.name || googleUser.name || googleUser.email.split('@')[0],
@@ -55,9 +54,8 @@ export default async function handler(req, res) {
     try {
       const tokenData  = await exchangeCode(code, req);
       const googleUser = await getGoogleUserInfo(tokenData.access_token);
-      const role       = getRole(googleUser.email);
       const workerInfo = await lookupWorkerByEmail(googleUser.email);
-
+      const role       = workerInfo?.systemRole || getRole(googleUser.email);
       const user = {
         email:      googleUser.email,
         name:       workerInfo?.name || googleUser.name,
@@ -124,7 +122,15 @@ async function lookupWorkerByEmail(email) {
     const [, ...rows] = data.values;
     const found = rows.find(r => r[4] && r[4].toLowerCase().trim() === email.toLowerCase().trim());
     if (!found) return null;
-    return { id: found[0], name: found[1], role: found[2], type: found[3], email: found[4] };
+    // 헤더: id(0), name(1), role(2), type(3), email(4), skills(5), color(6), memo(7), createdAt(8), systemRole(9)
+    return {
+      id:         found[0],
+      name:       found[1],
+      role:       found[2],
+      type:       found[3],
+      email:      found[4],
+      systemRole: found[9] || null,  // 'manager' 또는 'worker' (없으면 null)
+    };
   } catch (e) {
     console.warn('[auth] Workers 조회 실패:', e.message);
     return null;
