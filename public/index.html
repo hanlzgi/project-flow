@@ -685,6 +685,30 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
 <script>
 // ══ STATE ══
 let currentUser=null,projects=[],allTasks=[],selectedPid=null;
+
+// projectId 정규화 — projectName으로 올바른 projectId를 찾아 통일
+// (Sheets 저장/불러오기 과정에서 id가 달라지는 경우 복구)
+function normalizeTaskProjectIds(){
+  const nameToId={};
+  projects.forEach(p=>{ if(p.name) nameToId[p.name]=p.id; });
+  let fixed=0;
+  allTasks.forEach(t=>{
+    if(t.projectName && nameToId[t.projectName] && t.projectId!==nameToId[t.projectName]){
+      t.projectId=nameToId[t.projectName];
+      fixed++;
+    }
+  });
+  if(fixed>0) console.log(`[normalizeTaskProjectIds] ${fixed}개 공정 projectId 정규화됨`);
+}
+
+// projectId 또는 projectName으로 Tasks 필터 (Sheets 연동 시 id 불일치 방지)
+function getProjectTasks(pid){
+  const proj=projects.find(p=>p.id===pid);
+  return allTasks.filter(t=>
+    t.projectId===pid ||
+    (proj && t.projectName===proj.name && t.projectName)
+  );
+}
 let aiChatHist=[]; // AI 대화 이력
 const PC=['#c8521a','#1e5fa8','#2a7a4b','#7c4ba0','#c89a1a','#a0531e','#1e6878'];
 const CC={'기획':{bg:'#e3ecf7',fg:'#1e5fa8'},'영상':{bg:'#f5e8e0',fg:'#c8521a'},'디자인':{bg:'#e2f2e9',fg:'#2a7a4b'},'반응형':{bg:'#f0e8f8',fg:'#7c4ba0'},'홍보':{bg:'#fdf4d8',fg:'#c89a1a'},'애니':{bg:'#fde8d8',fg:'#a0531e'},'관리':{bg:'#e8ede8',fg:'#5a7a5a'},'편집':{bg:'#e0eff5',fg:'#1e6878'},'default':{bg:'#ebebeb',fg:'#6b6760'}};
@@ -871,7 +895,7 @@ async function saveProject(p){
       let sheetsRows=[];
       if(r.values&&r.values.length>1){
         const[,...rows]=r.values;
-        sheetsRows=rows.filter(r=>r[0]);
+        sheetsRows=rows.filter(r=>r[0]&&r[0]!=='id'); // 헤더행('id') 제외
       }
       // 2) 기존 행에서 이 프로젝트 행만 교체 or 추가
       const idx=sheetsRows.findIndex(r=>r[0]===p.id);
@@ -990,6 +1014,7 @@ async function sheetsAction(type){
       await initSheetHeaders();
       projects=await loadProjects();
       allTasks=await loadTasks();
+      normalizeTaskProjectIds();
       // localStorage도 갱신
       localStorage.setItem('pf_projects',JSON.stringify(projects));
       syncBadge(true);
@@ -1165,6 +1190,7 @@ async function loadAndRender(role){
   }
   projects=await loadProjects();
   allTasks=await loadTasks();
+  normalizeTaskProjectIds(); // projectId 불일치 자동 복구
   // 로컬 캐시 갱신 (다음 오프라인 접속 대비)
   if(isSynced()&&projects.length){
     localStorage.setItem('pf_projects',JSON.stringify(projects));
@@ -1196,7 +1222,7 @@ function dashHTML(){
     </div>
     <div class="dash-row">
       <div class="card"><div class="card-hd">프로젝트별 진행률</div><div class="card-body">
-        ${projects.map(p=>{const pts=allTasks.filter(t=>t.projectId===p.id);const pct=pts.length?Math.round(pts.filter(t=>t.status==='완료').length/pts.length*100):0;const rem=Math.ceil((new Date(p.end)-new Date())/86400000);return`<div class="prog-item"><div class="prog-label"><span style="font-weight:500">${p.name}</span><span style="color:${rem<7?'var(--accent)':rem<14?'var(--yellow)':'var(--ink2)'};font-family:'DM Mono',monospace;font-size:11px">${rem>0?`D-${rem}`:'종료'} · ${pct}%</span></div><div class="prog-track"><div class="prog-fill" style="width:${pct}%;background:${p.color}"></div></div></div>`;}).join('')||'<div style="color:var(--ink3);font-size:12.5px">프로젝트가 없습니다</div>'}
+        ${projects.map(p=>{const pts=getProjectTasks(p.id);const pct=pts.length?Math.round(pts.filter(t=>t.status==='완료').length/pts.length*100):0;const rem=Math.ceil((new Date(p.end)-new Date())/86400000);return`<div class="prog-item"><div class="prog-label"><span style="font-weight:500">${p.name}</span><span style="color:${rem<7?'var(--accent)':rem<14?'var(--yellow)':'var(--ink2)'};font-family:'DM Mono',monospace;font-size:11px">${rem>0?`D-${rem}`:'종료'} · ${pct}%</span></div><div class="prog-track"><div class="prog-fill" style="width:${pct}%;background:${p.color}"></div></div></div>`;}).join('')||'<div style="color:var(--ink3);font-size:12.5px">프로젝트가 없습니다</div>'}
       </div></div>
       <div class="card"><div class="card-hd">작업자별 현황</div><div class="card-body">
         ${Object.entries(wm).slice(0,8).map(([n,s])=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--rule);"><div style="width:80px;font-weight:500;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${n}</div><div style="flex:1;height:4px;background:var(--bg);border-radius:2px;overflow:hidden"><div style="width:${Math.round(s.done/s.total*100)}%;height:100%;background:var(--green);border-radius:2px"></div></div><div style="font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace;width:55px;text-align:right">${s.done}/${s.total}</div>${s.review?`<span class="status-badge s-review" style="font-size:10px">${s.review}건</span>`:''}</div>`).join('')||'<div style="color:var(--ink3);font-size:12.5px">데이터 없음</div>'}
@@ -1208,7 +1234,7 @@ function dashHTML(){
 function ganttHTML(){
   const project=(selectedPid?projects.find(p=>p.id===selectedPid):null)||projects[0];
   if(!project)return`<div class="page-wrap"><div class="empty-state"><div class="ei">📅</div><p>프로젝트를 선택하거나 등록하세요</p><br><button class="btn btn-primary" onclick="openNewProjectModal()">＋ 새 프로젝트</button></div></div>`;
-  const pTasks=allTasks.filter(t=>t.projectId===project.id);
+  const pTasks=getProjectTasks(project.id);
   if(!pTasks.length)return`<div class="page-wrap">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
       <div><div style="font-size:16px;font-weight:600">${project.name}</div><div style="font-size:12px;color:var(--ink2)">${project.pm||''} · ${project.start} ~ ${project.end}</div></div>
@@ -1450,7 +1476,18 @@ function ganttHTML(){
 }
 
 function tasksHTML(){
-  const fp=selectedPid||'all';const tasks=fp==='all'?allTasks:allTasks.filter(t=>t.projectId===fp);
+  const fp=selectedPid||'all';
+  // projectId 직접 매칭 + projectName 폴백 (Sheets 연동 후 id 불일치 방지)
+  let tasks;
+  if(fp==='all'){
+    tasks=allTasks;
+  } else {
+    const proj=projects.find(p=>p.id===fp);
+    tasks=allTasks.filter(t=>
+      t.projectId===fp ||
+      (proj && t.projectName===proj.name) // id 불일치 시 이름으로 폴백
+    );
+  }
   const sfSt=document.getElementById('sfSt')?.value||'all';
   // 마감일 기준 오름차순 정렬 (미정은 맨 뒤)
   const filtered=tasks
@@ -1646,7 +1683,7 @@ function workersHTML(){
     <div>
       <h2 style="font-size:15px;font-weight:600;margin-bottom:10px;">📋 프로젝트별 인력 배치</h2>
       ${projects.map((p,pi)=>{
-        const pt=allTasks.filter(t=>t.projectId===p.id);
+        const pt=getProjectTasks(p.id);
         const projWorkers=[...new Set(pt.map(t=>t.worker).filter(Boolean))];
         // 첫 번째 프로젝트만 기본으로 열림, 나머지는 닫힘
         const isOpen=pi===0;
@@ -1750,7 +1787,7 @@ function dropWorkerToProject(event,pid){
 function loadTawTasksForWorker(workerName,pid){
   const list=document.getElementById('tawTaskList');
   if(!pid){list.innerHTML='';return;}
-  const pt=allTasks.filter(t=>t.projectId===pid);
+  const pt=getProjectTasks(pid);
   if(!pt.length){list.innerHTML=`<div style="color:var(--ink3);font-size:12.5px;padding:10px 0;">이 프로젝트에 작업이 없습니다.</div>`;return;}
   list.innerHTML=`<div style="font-size:11.5px;font-weight:600;color:var(--ink2);margin-bottom:8px;">배치할 공정을 선택하세요:</div>`+
     pt.map(t=>{
@@ -1958,7 +1995,7 @@ function workerGanttHTML(mn){
   const project=projects.find(p=>p.id===displayPid)||projects[0];
   if(!project)return`<div class="page-wrap"><div class="empty-state"><div class="ei">📅</div><p>프로젝트가 없습니다</p></div></div>`;
 
-  const pTasks=allTasks.filter(t=>t.projectId===project.id);
+  const pTasks=getProjectTasks(project.id);
   if(!pTasks.length)return`<div class="page-wrap">
     <div class="page-hd"><h1>${project.name} 공정표</h1><p>등록된 공정이 없습니다</p></div></div>`;
 
@@ -2069,7 +2106,7 @@ function allScheduleHTML(mn){
     ${!projects.length
       ?`<div class="empty-state"><div class="ei">📋</div><p>등록된 프로젝트가 없습니다</p></div>`
       :projects.map(p=>{
-        const pt=allTasks.filter(t=>t.projectId===p.id);
+        const pt=getProjectTasks(p.id);
         if(!pt.length)return`<div class="card"><div class="card-hd"><span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};margin-right:7px;vertical-align:middle"></span>${p.name}</span><span style="font-size:12px;color:var(--ink3);font-weight:400;">공정 없음</span></div></div>`;
         const myCount=pt.filter(t=>t.worker===mn||t.worker===currentUser.email).length;
         const done=pt.filter(t=>t.status==='완료').length;
@@ -2736,7 +2773,7 @@ function loadTawTasks(){
   const pid=document.getElementById('taw-project').value;
   const list=document.getElementById('tawTaskList');
   if(!pid){list.innerHTML='';return;}
-  const pt=allTasks.filter(t=>t.projectId===pid);
+  const pt=getProjectTasks(pid);
   if(!pt.length){list.innerHTML=`<div style="color:var(--ink3);font-size:12.5px;padding:10px 0;">이 프로젝트에 작업이 없습니다. 먼저 작업을 추가하세요.</div>`;return;}
   const wm=getWorkerMaster();const w=wm.find(x=>x.id===_assignWorkerId);
   list.innerHTML=`<div style="font-size:11.5px;font-weight:600;color:var(--ink2);margin-bottom:8px;">공정을 선택하고 세부 역할을 입력하세요:</div>`+
@@ -3165,7 +3202,7 @@ function openEditProjectModal(pid){
   document.getElementById('aiHistory').innerHTML=`<div style="font-size:12px;color:var(--ink3);text-align:center;padding-top:30px;">기존 작업을 수정하거나 AI로 추가 생성하세요</div>`;
   aiChatHist=[];
   // 기존 tasks 불러오기
-  const pTasks=allTasks.filter(t=>t.projectId===pid);
+  const pTasks=getProjectTasks(pid);
   setTableTasks(pTasks);
   // 저장 버튼을 "업데이트"로 변경
   const saveBtn=document.querySelector('#newProjectModal .modal-actions .btn-primary');
