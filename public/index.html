@@ -446,11 +446,20 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
   <div class="modal">
     <button class="modal-close" onclick="closeModal('workerMasterModal')">×</button>
     <h3 id="wmTitle">작업자 등록</h3>
+
+    <!-- 구조 안내 -->
+    <div style="background:var(--blue-lt);border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--blue);line-height:1.7;">
+      <strong>등록 방법:</strong><br>
+      ① <strong>이름(실명)</strong>을 입력하세요 — 공정표·전체 작업에 이 이름이 표시됩니다<br>
+      ② <strong>로그인 이메일</strong>을 입력하면 작업자가 해당 이메일로 로그인 시 자동 연결됩니다
+    </div>
+
     <div style="display:flex;flex-direction:column;gap:10px;">
       <div class="form-grid">
         <div class="form-group">
-          <label class="form-label">이름 *</label>
-          <input class="form-input" id="wm-name" placeholder="예: 박윤서">
+          <label class="form-label">이름 (실명) *</label>
+          <input class="form-input" id="wm-name" placeholder="예: 윤성필, 박수진">
+          <span style="font-size:11px;color:var(--ink3);">공정표에 표시되는 실제 이름</span>
         </div>
         <div class="form-group">
           <label class="form-label">구분</label>
@@ -461,12 +470,13 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
           </select>
         </div>
         <div class="form-group full">
-          <label class="form-label">역할 / 전문 분야</label>
-          <input class="form-input" id="wm-role" placeholder="예: 영상편집, 모션그래픽">
+          <label class="form-label">로그인 이메일 * <span style="color:var(--green);font-weight:600;">← 중요</span></label>
+          <input class="form-input" id="wm-email" type="email" placeholder="작업자가 로그인할 이메일 주소">
+          <span style="font-size:11px;color:var(--ink3);">이 이메일로 로그인하면 해당 작업자의 공정이 자동 연결됩니다</span>
         </div>
         <div class="form-group full">
-          <label class="form-label">이메일 (알림용)</label>
-          <input class="form-input" id="wm-email" type="email" placeholder="worker@company.com">
+          <label class="form-label">역할 / 전문 분야</label>
+          <input class="form-input" id="wm-role" placeholder="예: 영상편집, 모션그래픽, PM">
         </div>
         <div class="form-group full">
           <label class="form-label">보유 스킬 (쉼표로 구분)</label>
@@ -778,10 +788,15 @@ function syncBadge(synced){const el=document.getElementById('syncBadge');if(!el)
 function renderApp(){
   document.getElementById('loginScreen').style.display='none';
   document.getElementById('appScreen').style.display='block';
-  document.getElementById('userName').textContent=currentUser.name||currentUser.email;
+  // 상단 이름: 마스터 등록 이름(실명) > 구글 표시명 > 이메일 앞부분 순으로
+  const displayName = currentUser.workerName || currentUser.name || currentUser.email.split('@')[0];
+  document.getElementById('userName').textContent=displayName;
   const av=document.getElementById('userAvatar');
-  if(currentUser.picture)av.innerHTML=`<img src="${currentUser.picture}" alt="">`;else av.textContent=(currentUser.name||currentUser.email||'?')[0].toUpperCase();
-  const b=document.getElementById('roleBadge');b.textContent=currentUser.role==='manager'?'관리자':'작업자';b.className='role-badge '+(currentUser.role==='manager'?'role-manager':'role-worker');
+  if(currentUser.picture)av.innerHTML=`<img src="${currentUser.picture}" alt="">`;
+  else av.textContent=displayName[0].toUpperCase();
+  const b=document.getElementById('roleBadge');
+  b.textContent=currentUser.role==='manager'?'관리자':'작업자';
+  b.className='role-badge '+(currentUser.role==='manager'?'role-manager':'role-worker');
   if(currentUser.role==='manager')renderManagerApp();else renderWorkerApp();
 }
 function renderManagerApp(){
@@ -1400,7 +1415,8 @@ window.checkMyTasks = function(){
 // ══ 작업자 패널 ══
 function renderWorkerPanel(panel){
   const c=document.getElementById('workerContent');
-  const mn=currentUser.name||currentUser.email.split('@')[0];
+  // 실명 우선: workerName(마스터 등록명) > name(구글 표시명) > 이메일 앞부분
+  const mn=currentUser.workerName||currentUser.name||currentUser.email.split('@')[0];
   const my=allTasks.filter(t=>isMyTask(t));
   if(panel==='myTasks')     c.innerHTML=myTasksHTML(my,mn);
   else if(panel==='gantt')  c.innerHTML=workerGanttHTML(mn);
@@ -1926,7 +1942,7 @@ async function submitTaskUpdate(){
   if(currentUser.role==='manager'){
     renderMgr('tasks');
   } else {
-    const mn=currentUser.name||currentUser.email.split('@')[0];
+    const mn=currentUser.workerName||currentUser.name||currentUser.email.split('@')[0];
     const my=allTasks.filter(t=>isMyTask(t));
     document.getElementById('workerContent').innerHTML=updateHTML(my,mn);
   }
