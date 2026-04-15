@@ -459,6 +459,7 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
     </div>
 
     <div class="modal-actions">
+      <button id="tdDeleteBtn" class="btn" style="display:none;background:var(--alt);color:var(--accent);margin-right:auto;" onclick="deleteTask(document.getElementById('td-key').value)">🗑 공정 삭제</button>
       <button class="btn btn-secondary" onclick="closeModal('taskDetailModal')">취소</button>
       <button class="btn btn-green" onclick="notifyWorker(document.getElementById('td-key').value)" style="color:white;">📧 담당자 알림</button>
       <button class="btn btn-primary" onclick="saveTaskDetail()">저장</button>
@@ -498,6 +499,14 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
           <label class="form-label">로그인 이메일 * <span style="color:var(--green);font-weight:600;">← 중요</span></label>
           <input class="form-input" id="wm-email" type="email" placeholder="작업자가 로그인할 이메일 주소">
           <span style="font-size:11px;color:var(--ink3);">이 이메일로 로그인하면 해당 작업자의 공정이 자동 연결됩니다</span>
+        </div>
+        <div class="form-group full">
+          <label class="form-label">시스템 권한 <span style="color:var(--accent);font-weight:600;">← 관리자 접근 권한 설정</span></label>
+          <select class="form-select" id="wm-systemRole">
+            <option value="worker">작업자 — 공정표·업데이트만 가능</option>
+            <option value="manager">관리자 — 프로젝트·공정·작업자 전체 관리</option>
+          </select>
+          <span style="font-size:11px;color:var(--ink3);">관리자로 설정하면 로그인 시 관리자 페이지가 표시됩니다</span>
         </div>
         <div class="form-group full">
           <label class="form-label">역할 / 전문 분야</label>
@@ -648,29 +657,33 @@ async function emailLogin(){
   try{
     const res=await api('/api/auth',{method:'POST',body:JSON.stringify({action:'emailLogin',email})});
     if(res.ok){
-      // 서버 응답에 workerName이 없으면 로컬 Workers에서 보완
       const user=res.user;
+      // 서버 응답에 workerName 없으면 로컬 Workers에서 보완
       if(!user.workerName){
         const wm=JSON.parse(localStorage.getItem('pf_workers')||'[]');
         const found=wm.find(w=>w.email&&w.email.toLowerCase().trim()===email);
-        if(found){user.workerName=found.name;user.workerId=found.id;user.name=found.name;}
+        if(found){
+          user.workerName=found.name;
+          user.workerId=found.id;
+          user.name=found.name;
+          // Workers에 systemRole이 있으면 우선 적용
+          if(found.systemRole) user.role=found.systemRole;
+        }
       }
       loginOk(user,res.token);
     } else throw new Error(res.error||'실패');
   }catch(e){
-    // 서버 실패 시 로컬 폴백 — Workers localStorage에서 이름 찾기
+    // 서버 실패 시 로컬 폴백
     const wm=JSON.parse(localStorage.getItem('pf_workers')||'[]');
     const found=wm.find(w=>w.email&&w.email.toLowerCase().trim()===email);
-    // 관리자 판단 (로컬 환경에서)
     const adminEmails=['hanlzgi@gmail.com'];
-    const role=adminEmails.includes(email)?'manager':'worker';
+    // systemRole 우선 → ADMIN_EMAILS fallback
+    const role=found?.systemRole||( adminEmails.includes(email)?'manager':'worker');
     const realName=found?.name||'';
     const user={
-      email,
-      name: realName||email.split('@')[0],
+      email, name:realName||email.split('@')[0],
       picture:'', role,
-      workerName: realName,
-      workerId: found?.id||'',
+      workerName:realName, workerId:found?.id||'',
     };
     const token=btoa(JSON.stringify({...user,exp:Date.now()+7*24*3600*1000}));
     loginOk(user,token);
@@ -699,11 +712,21 @@ function checkSession(){
     const p=JSON.parse(atob(t));
     if(p.exp<Date.now()){logout();return false;}
     currentUser=u;
-    // workerName이 세션에 없으면 Workers 로컬에서 보완
-    if(!currentUser.workerName&&currentUser.email){
+    // Workers 로컬에서 workerName + systemRole 보완
+    if(currentUser.email){
       const wm=JSON.parse(localStorage.getItem('pf_workers')||'[]');
       const found=wm.find(w=>w.email&&w.email.toLowerCase()===currentUser.email.toLowerCase());
-      if(found){currentUser.workerName=found.name;currentUser.workerId=found.id;}
+      if(found){
+        if(!currentUser.workerName){currentUser.workerName=found.name;currentUser.workerId=found.id;}
+        // systemRole이 지정돼 있으면 역할 갱신 (ADMIN_EMAILS override)
+        if(found.systemRole && found.systemRole!==currentUser.role){
+          currentUser.role=found.systemRole;
+          // 세션 토큰도 갱신
+          localStorage.setItem('pf_user',JSON.stringify(currentUser));
+          const tok=btoa(JSON.stringify({...currentUser,exp:p.exp}));
+          localStorage.setItem('pf_session',tok);
+        }
+      }
     }
     return true;
   }catch{return false;}
@@ -882,6 +905,7 @@ async function loadAndRender(role){
           id:r[0],name:r[1],role:r[2]||'',type:r[3]||'internal',
           email:r[4]||'',skills:r[5]||'',color:r[6]||'#1e5fa8',
           memo:r[7]||'',createdAt:r[8]||'',
+          systemRole:r[9]||'worker',
         }));
         if(workers.length){
           localStorage.setItem('pf_workers',JSON.stringify(workers));
@@ -1319,15 +1343,22 @@ function workersHTML(){
                 draggable="true"
                 data-worker="${name}"
                 ondragstart="dragWorker(event,'${name}')"
-                onclick="openWorkerMasterModal(${w?`'${w.id}'`:'null'},'${name}')"
                 title="${inMaster?`${w.role||'역할 미지정'} · ${w.type==='internal'?'내부':w.type==='external'?'외주':'팀'}`:name+' (마스터 미등록)'}"
-                style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;border:1.5px solid ${inMaster?(w.color||'var(--blue)'):'var(--rule)'};background:${inMaster?'white':'var(--bg)'};cursor:grab;user-select:none;transition:all .15s;box-shadow:0 1px 3px rgba(0,0,0,.08);">
-                <div style="width:22px;height:22px;border-radius:6px;background:${inMaster?(w.color||'var(--blue)'):'var(--ink3)'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:white;flex-shrink:0;">${name[0]}</div>
-                <div>
-                  <div style="font-size:12.5px;font-weight:600;color:var(--ink);">${name}</div>
-                  ${inMaster?`<div style="font-size:10px;color:var(--ink3);">${w.role||''}</div>`:''}
+                style="position:relative;display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;border:1.5px solid ${inMaster?(w.color||'var(--blue)'):'var(--rule)'};background:${inMaster?'white':'var(--bg)'};cursor:grab;user-select:none;transition:all .15s;box-shadow:0 1px 3px rgba(0,0,0,.08);">
+                <div onclick="openWorkerMasterModal(${w?`'${w.id}'`:'null'},'${name}')" style="display:inline-flex;align-items:center;gap:6px;">
+                  <div style="width:22px;height:22px;border-radius:6px;background:${inMaster?(w.color||'var(--blue)'):'var(--ink3)'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:white;flex-shrink:0;">${name[0]}</div>
+                  <div>
+                    <div style="font-size:12.5px;font-weight:600;color:var(--ink);">${name}</div>
+                    ${inMaster?`<div style="font-size:10px;color:var(--ink3);">${w.role||""}${w.systemRole==="manager"?" <span style=\"color:var(--accent);font-weight:600;font-size:9px;\">관리자</span>":""}</div>`:''}
+                  </div>
+                  ${wt.length?`<span style="padding:1px 6px;border-radius:8px;background:var(--blue-lt);color:var(--blue);font-size:10px;font-weight:600;">${wt.length}</span>`:''}
                 </div>
-                ${wt.length?`<span style="padding:1px 6px;border-radius:8px;background:var(--blue-lt);color:var(--blue);font-size:10px;font-weight:600;">${wt.length}</span>`:''}
+                <button
+                  onclick="event.stopPropagation();deleteWorkerFromPool('${name}'${w?`,'${w.id}'`:''} )"
+                  title="${name} 삭제"
+                  style="margin-left:2px;width:16px;height:16px;border-radius:50%;border:none;background:var(--rule);color:var(--ink2);font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;line-height:1;flex-shrink:0;transition:all .15s;"
+                  onmouseover="this.style.background='var(--accent)';this.style.color='white';"
+                  onmouseout="this.style.background='var(--rule)';this.style.color='var(--ink2)';">×</button>
               </div>`;
             }).join('')
           :`<div style="color:var(--ink3);font-size:13px;padding:10px;">작업자를 등록하면 여기에 표시됩니다</div>`
@@ -1389,6 +1420,25 @@ function workersHTML(){
       }).join('')||`<div style="color:var(--ink3);font-size:13px;padding:20px;text-align:center;">프로젝트가 없습니다</div>`}
     </div>
   </div>`;
+}
+
+// ══ 인력풀 작업자 삭제 ══
+function deleteWorkerFromPool(name, workerId){
+  const wt = allTasks.filter(t => t.worker===name || (Array.isArray(t.workers)&&t.workers.includes(name)));
+  const msg = wt.length
+    ? `"${name}"을(를) 삭제하시겠습니까?\n\n⚠️ 이 작업자는 현재 ${wt.length}개 공정에 배치돼 있습니다.\n삭제해도 공정의 담당자 이름은 그대로 유지됩니다.`
+    : `"${name}"을(를) 인력 풀에서 삭제하시겠습니까?`;
+  if(!confirm(msg)) return;
+
+  // 마스터에서 제거
+  if(workerId){
+    _editWorkerId = workerId;
+    deleteWorkerMaster(true); // 이미 confirm했으므로 스킵
+  } else {
+    // 마스터에 없는 경우(공정에만 있는 작업자) — 별도 처리 없음 (공정에는 유지)
+    toast(`✓ "${name}" 삭제됨`);
+    renderMgr('workers');
+  }
 }
 
 // ══ 드래그앤드롭 — 인력 풀 → 프로젝트 배치 ══
@@ -1964,6 +2014,10 @@ function openTaskDetail(key){
   // 하위 공정(서브태스크) 렌더
   renderSubtasks(t);
 
+  // 삭제 버튼 — 기존 공정만 표시 (새 공정 추가 모드는 숨김)
+  const delBtn = document.getElementById('tdDeleteBtn');
+  if(delBtn) delBtn.style.display = key==='__new__' ? 'none' : 'inline-flex';
+
   openModal('taskDetailModal');
 }
 
@@ -2237,7 +2291,7 @@ async function initSheetHeaders(){
       await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'append',sheetName:'TaskUpdates',
         values:[['updatedAt','updatedBy','taskKey','status','memo','actualEnd']]})});
       await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'append',sheetName:'Workers',
-        values:[['id','name','role','type','email','skills','color','memo','createdAt']]})});
+        values:[['id','name','role','type','email','skills','color','memo','createdAt','systemRole']]})});
     }
   }catch(e){
     throw new Error('헤더 초기화 실패: ' + e.message);
@@ -2256,9 +2310,11 @@ function getWorkerMaster(){
 }
 function saveWorkerMaster(wm){
   localStorage.setItem('pf_workers',JSON.stringify(wm));
-  // Sheets 연동 시 별도 시트에 저장 (비동기)
   if(isSynced()){
-    api('/api/sheets',{method:'POST',body:JSON.stringify({action:'append',sheetName:'Workers',values:wm.map(w=>[w.id,w.name,w.role,w.type,w.email,w.skills,w.color,w.memo,w.createdAt])})}).catch(()=>{});
+    api('/api/sheets',{method:'POST',body:JSON.stringify({
+      action:'append',sheetName:'Workers',
+      values:wm.map(w=>[w.id,w.name,w.role,w.type,w.email,w.skills,w.color,w.memo,w.createdAt,w.systemRole||'worker'])
+    })}).catch(()=>{});
   }
 }
 
@@ -2276,6 +2332,7 @@ function openWorkerMasterModal(id=null, prefillName=''){
   document.getElementById('wm-email').value=w?.email||'';
   document.getElementById('wm-skills').value=w?.skills||'';
   document.getElementById('wm-memo').value=w?.memo||'';
+  document.getElementById('wm-systemRole').value=w?.systemRole||'worker';
   document.getElementById('wmDeleteBtn').style.display=id?'inline-flex':'none';
   openModal('workerMasterModal');
 }
@@ -2284,6 +2341,7 @@ function saveWorkerMasterModal(){
   if(!name){toast('이름을 입력하세요');return;}
   const wm=getWorkerMaster();
   const newEmail=(document.getElementById('wm-email').value.trim()||'').toLowerCase();
+  const newSystemRole=document.getElementById('wm-systemRole').value||'worker';
 
   if(_editWorkerId){
     const w=wm.find(x=>x.id===_editWorkerId);
@@ -2296,6 +2354,7 @@ function saveWorkerMasterModal(){
       w.email=document.getElementById('wm-email').value.trim();
       w.skills=document.getElementById('wm-skills').value.trim();
       w.memo=document.getElementById('wm-memo').value.trim();
+      w.systemRole=newSystemRole;
 
       // 이름·이메일 변경 시 allTasks + 로컬 일괄 갱신
       const nameChanged=oldName!==name;
@@ -2306,7 +2365,6 @@ function saveWorkerMasterModal(){
         allTasks.forEach(t=>{
           if(t.worker===oldName) t.worker=name;
           if(oldEmail&&t.workerEmail===oldEmail) t.workerEmail=w.email;
-          // 이름 일치하는데 이메일이 없던 task → 이메일 연결
           if(t.worker===name&&!t.workerEmail&&w.email) t.workerEmail=w.email;
           if(Array.isArray(t.workers))
             t.workers=t.workers.map(wn=>wn===oldName?name:wn);
@@ -2322,7 +2380,7 @@ function saveWorkerMasterModal(){
         localStorage.setItem('pf_projects',JSON.stringify(ps));
         toast(`✓ ${name} 수정 · 기존 작업 이메일 연결 완료`);
       } else {
-        toast(`✓ ${name} 수정됨`);
+        toast(`✓ ${name} 수정됨${newSystemRole==='manager'?' (관리자 권한)':''}`);
       }
     }
   } else {
@@ -2332,6 +2390,7 @@ function saveWorkerMasterModal(){
       role:document.getElementById('wm-role').value.trim(),
       type:document.getElementById('wm-type').value,
       email,
+      systemRole:newSystemRole,
       skills:document.getElementById('wm-skills').value.trim(),
       memo:document.getElementById('wm-memo').value.trim(),
       color:WORKER_COLORS[wm.length%WORKER_COLORS.length],
@@ -2348,22 +2407,24 @@ function saveWorkerMasterModal(){
         if(t.worker===name&&!t.workerEmail) t.workerEmail=email;
       }));
       localStorage.setItem('pf_projects',JSON.stringify(ps));
-      toast(`✓ ${name} 등록됨${linked?` · ${linked}개 작업 이메일 연결됨`:''}`);
+      toast(`✓ ${name} 등록됨${newSystemRole==='manager'?' (관리자 권한)':''}${linked?` · ${linked}개 작업 연결`:''}`);
     } else {
-      toast(`✓ ${name} 등록됨`);
+      toast(`✓ ${name} 등록됨${newSystemRole==='manager'?' (관리자 권한)':''}`);
     }
   }
   saveWorkerMaster(wm);
   closeModal('workerMasterModal');
   renderMgr('workers');
 }
-function deleteWorkerMaster(){
-  if(!_editWorkerId)return;
-  if(!confirm('정말 삭제하시겠습니까?'))return;
-  const wm=getWorkerMaster().filter(x=>x.id!==_editWorkerId);
-  saveWorkerMaster(wm);
+function deleteWorkerMaster(skipConfirm=false){
+  if(!_editWorkerId) return;
+  if(!skipConfirm && !confirm('정말 삭제하시겠습니까?')) return;
+  const wm=getWorkerMaster();
+  const w=wm.find(x=>x.id===_editWorkerId);
+  const filtered=wm.filter(x=>x.id!==_editWorkerId);
+  saveWorkerMaster(filtered);
   closeModal('workerMasterModal');
-  toast('삭제됨');
+  toast(`✓ "${w?.name||'작업자'}" 삭제됨`);
   renderMgr('workers');
 }
 
@@ -2604,19 +2665,48 @@ function saveSubtask(){
   renderMgr('gantt');
 }
 
-function deleteSubtask(){
-  const t=allTasks.find(t=>t.key===_stKey); if(!t||!t.subtasks)return;
-  if(!confirm('이 세부공정을 삭제하시겠습니까?'))return;
-  t.subtasks.splice(_stIdx,1);
-  const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');
-  const proj=ps.find(p=>p.id===t.projectId);
+// ══ 공정 삭제 ══
+async function deleteTask(key){
+  if(!key||key==='__new__') return;
+  const t = allTasks.find(t=>t.key===key);
+  if(!t){ toast('공정을 찾을 수 없습니다'); return; }
+  if(!confirm(`"${t.task}" 공정을 삭제하시겠습니까?\n삭제된 공정은 복구할 수 없습니다.`)) return;
+
+  // 메모리에서 제거
+  allTasks = allTasks.filter(t=>t.key!==key);
+
+  // localStorage 반영
+  const ps = JSON.parse(localStorage.getItem('pf_projects')||'[]');
+  const proj = ps.find(p=>p.id===t.projectId);
   if(proj&&proj.tasks){
-    const pt=proj.tasks.find(pt=>pt.key===t.key);
-    if(pt) pt.subtasks=t.subtasks;
-    localStorage.setItem('pf_projects',JSON.stringify(ps));
+    proj.tasks = proj.tasks.filter(pt=>pt.key!==key);
+    localStorage.setItem('pf_projects', JSON.stringify(ps));
   }
+
+  closeModal('taskDetailModal');
+  toast(`✓ "${t.task}" 공정 삭제됨`);
+  renderSidebar();
+  renderMgr('gantt');
+}
+
+function deleteSubtask(){
+  const t = allTasks.find(t=>t.key===_stKey);
+  if(!t||!t.subtasks) return;
+  if(!confirm('이 세부공정을 삭제하시겠습니까?')) return;
+  const subName = t.subtasks[_stIdx]?.name||'세부공정';
+  t.subtasks.splice(_stIdx, 1);
+
+  // localStorage 반영
+  const ps = JSON.parse(localStorage.getItem('pf_projects')||'[]');
+  const proj = ps.find(p=>p.id===t.projectId);
+  if(proj&&proj.tasks){
+    const pt = proj.tasks.find(pt=>pt.key===t.key);
+    if(pt) pt.subtasks = t.subtasks;
+    localStorage.setItem('pf_projects', JSON.stringify(ps));
+  }
+
   closeModal('subtaskModal');
-  toast('삭제됨');
+  toast(`✓ "${subName}" 세부공정 삭제됨`);
   renderMgr('gantt');
 }
 
