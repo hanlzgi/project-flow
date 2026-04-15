@@ -109,6 +109,32 @@ export default async function handler(req, res) {
       const data = await resp.json();
       return res.status(200).json(data);
 
+    } else if (action === 'clearAndWrite') {
+      // 시트 내용 전체 교체 (헤더 유지하며 데이터만 갱신)
+      // 1) 먼저 기존 데이터 범위 clear
+      const clearResp = await fetch(
+        `${baseUrl}/values/${encodeURIComponent(sheetName + '!A2:Z10000')}:clear`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        }
+      );
+      await clearResp.json();
+      // 2) 새 데이터 A2부터 write
+      if (values && values.length > 0) {
+        const writeResp = await fetch(
+          `${baseUrl}/values/${encodeURIComponent(sheetName + '!A2')}?valueInputOption=USER_ENTERED`,
+          {
+            method: 'PUT',
+            headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ range: sheetName + '!A2', majorDimension: 'ROWS', values }),
+          }
+        );
+        const data = await writeResp.json();
+        return res.status(200).json(data);
+      }
+      return res.status(200).json({ clearedAndWrote: 0 });
+
     } else if (action === 'createSheets') {
       // 시트 탭이 없으면 생성 — requests: [{title:'Projects'}, ...]
       // 1) 현재 시트 목록 조회
