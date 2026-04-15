@@ -536,6 +536,38 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
       💡 세부 공정을 추가하면 한 작업을 여러 담당자가 역할을 나눠서 진행할 수 있습니다.<br>예: 영상 구성안 → 콘티(박윤서) + 스크립트(윤성필) + 감수(이하늘)
     </div>
 
+    <!-- 🔖 중요일정 지정 -->
+    <div style="margin-bottom:14px;border:1px solid rgba(124,75,160,.3);border-radius:8px;overflow:hidden;">
+      <div style="background:rgba(124,75,160,.08);padding:8px 12px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;"
+        onclick="toggleTdMarker()">
+        <span style="font-size:12px;font-weight:600;color:#7c4ba0;">🔖 중요일정으로 공정표에 표시</span>
+        <span id="tdMarkerArrow" style="font-size:11px;color:#7c4ba0;transition:transform .2s;display:inline-block;">▼</span>
+      </div>
+      <div id="tdMarkerWrap" style="display:none;padding:10px 12px;background:white;">
+        <div style="font-size:11.5px;color:var(--ink2);margin-bottom:8px;">
+          이 공정의 마감일을 공정표에 중요일정(세로 마커)으로 표시합니다.
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:5px;font-size:12.5px;cursor:pointer;">
+            <input type="checkbox" id="td-markerEnabled" onchange="toggleTdMarkerFields(this)"
+              style="width:15px;height:15px;accent-color:#7c4ba0;">
+            공정표에 마커 표시
+          </label>
+          <input id="td-markerLabel" class="form-input" placeholder="표시 이름 (예: 착수보고)"
+            style="flex:1;min-width:120px;font-size:12.5px;padding:5px 8px;display:none;">
+          <select id="td-markerType" class="form-select"
+            style="width:100px;font-size:12px;padding:5px 6px;display:none;">
+            <option value="보고회">보고회</option>
+            <option value="납품일">납품일</option>
+            <option value="검수">검수</option>
+            <option value="마감">마감</option>
+            <option value="킥오프">킥오프</option>
+            <option value="기타">기타</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
     <div class="modal-actions">
       <button id="tdDeleteBtn" class="btn" style="display:none;background:var(--alt);color:var(--accent);margin-right:auto;" onclick="deleteTask(document.getElementById('td-key').value)">🗑 공정 삭제</button>
       <button class="btn btn-secondary" onclick="closeModal('taskDetailModal')">취소</button>
@@ -2461,7 +2493,46 @@ function openTaskDetail(key){
   const delBtn = document.getElementById('tdDeleteBtn');
   if(delBtn) delBtn.style.display = key==='__new__' ? 'none' : 'inline-flex';
 
+  // 중요일정 마커 상태 로드
+  const proj = projects.find(p=>p.id===t.projectId);
+  const existingMarker = (proj?.markers||[]).find(m=>m.label===t.task||m._taskKey===key);
+  const enabled = !!existingMarker;
+  const markerEnabledEl = document.getElementById('td-markerEnabled');
+  const markerLabelEl = document.getElementById('td-markerLabel');
+  const markerTypeEl = document.getElementById('td-markerType');
+  if(markerEnabledEl){
+    markerEnabledEl.checked = enabled;
+    if(markerLabelEl){ markerLabelEl.value = existingMarker?.label||t.task||''; markerLabelEl.style.display = enabled?'':'none'; }
+    if(markerTypeEl){ markerTypeEl.value = existingMarker?.type||'기타'; markerTypeEl.style.display = enabled?'':'none'; }
+  }
+  // 마커 섹션 접힘 상태 초기화
+  const tdMarkerWrap = document.getElementById('tdMarkerWrap');
+  const tdMarkerArrow = document.getElementById('tdMarkerArrow');
+  if(tdMarkerWrap){ tdMarkerWrap.style.display = enabled ? 'block' : 'none'; }
+  if(tdMarkerArrow){ tdMarkerArrow.style.transform = enabled ? 'rotate(180deg)' : 'rotate(0deg)'; }
+
   openModal('taskDetailModal');
+}
+
+function toggleTdMarker(){
+  const wrap = document.getElementById('tdMarkerWrap');
+  const arrow = document.getElementById('tdMarkerArrow');
+  if(!wrap) return;
+  const isOpen = wrap.style.display !== 'none';
+  wrap.style.display = isOpen ? 'none' : 'block';
+  if(arrow) arrow.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+}
+
+function toggleTdMarkerFields(el){
+  const show = el.checked;
+  document.getElementById('td-markerLabel').style.display = show ? '' : 'none';
+  document.getElementById('td-markerType').style.display = show ? '' : 'none';
+  // 라벨 기본값을 현재 작업명으로 설정
+  if(show){
+    const taskName = document.getElementById('td-task')?.value || '';
+    if(!document.getElementById('td-markerLabel').value)
+      document.getElementById('td-markerLabel').value = taskName;
+  }
 }
 
 function toggleTdWorkerCustom(sel){
@@ -2538,6 +2609,29 @@ async function saveTaskDetail(){
     const pt = proj.tasks.find(pt=>pt.key===key);
     if(pt){ Object.assign(pt, t); }
     localStorage.setItem('pf_projects', JSON.stringify(ps));
+  }
+
+  // 중요일정 마커 처리
+  const markerEnabled = document.getElementById('td-markerEnabled')?.checked;
+  const markerLabel = document.getElementById('td-markerLabel')?.value?.trim() || t.task;
+  const markerType = document.getElementById('td-markerType')?.value || '기타';
+  const projForMarker = projects.find(p=>p.id===t.projectId);
+  if(projForMarker){
+    if(!projForMarker.markers) projForMarker.markers=[];
+    // 이 task의 기존 마커 제거
+    projForMarker.markers = projForMarker.markers.filter(m=>m._taskKey!==key);
+    if(markerEnabled && t.end){
+      projForMarker.markers.push({
+        date: t.end,
+        label: markerLabel,
+        type: markerType,
+        _taskKey: key  // 나중에 제거하기 위한 참조
+      });
+    }
+    // projects 로컬 저장에도 markers 반영
+    if(proj){ proj.markers = projForMarker.markers; localStorage.setItem('pf_projects',JSON.stringify(ps)); }
+    // Sheets 저장 (비동기)
+    if(isSynced()) saveProject(projForMarker).catch(()=>{});
   }
 
   // 상태 이력 저장
