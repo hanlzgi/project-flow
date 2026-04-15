@@ -872,14 +872,16 @@ async function loadProjects(){
         // id 기준 중복 제거 (마지막 행 우선)
         const map=new Map();
         rows.filter(r=>r[0]&&r[0]!=='id').forEach(r=>{
-          map.set(r[0],{id:r[0],name:r[1],client:r[2],pm:r[3],lead:r[4],start:r[5],end:r[6],desc:r[7],color:r[8]||PC[0],createdAt:r[9],createdBy:r[10]});
+          map.set(r[0],{id:r[0],name:r[1],client:r[2],pm:r[3],lead:r[4],start:r[5],end:r[6],desc:r[7],color:r[8]||PC[0],createdAt:r[9],createdBy:r[10],markers:r[11]?JSON.parse(r[11]):[]});
         });
         const parsed=[...map.values()];
         if(parsed.length) return parsed;
       }
     }catch(e){console.warn('Sheets loadProjects fail',e.message);}
   }
-  return JSON.parse(localStorage.getItem('pf_projects')||'[]');
+  // localStorage fallback — markers 포함
+  const lsProjs = JSON.parse(localStorage.getItem('pf_projects')||'[]');
+  return lsProjs;
 }
 
 async function loadTasks(){
@@ -949,7 +951,7 @@ async function overlayLatestStatus(tasks){
 }
 
 async function saveProject(p){
-  const row=[p.id,p.name,p.client||'',p.pm||'',p.lead||'',p.start||'',p.end||'',p.desc||'',p.color||'',p.createdAt||'',p.createdBy||currentUser?.email||''];
+  const row=[p.id,p.name,p.client||'',p.pm||'',p.lead||'',p.start||'',p.end||'',p.desc||'',p.color||'',p.createdAt||'',p.createdBy||currentUser?.email||'',p.markers?JSON.stringify(p.markers):''];
   if(isSynced()){
     try{
       // 1) Sheets에서 현재 최신 Projects 읽기 (다른 관리자가 등록한 것 포함)
@@ -968,7 +970,7 @@ async function saveProject(p){
       syncBadge(true);return;
     }catch(e){console.warn('saveProject Sheets 실패:',e.message);}
   }
-  const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');const i=ps.findIndex(x=>x.id===p.id);if(i>=0)ps[i]=p;else ps.push(p);localStorage.setItem('pf_projects',JSON.stringify(ps));syncBadge(false);
+  const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');const i=ps.findIndex(x=>x.id===p.id);if(i>=0)ps[i]={...ps[i],...p};else ps.push(p);localStorage.setItem('pf_projects',JSON.stringify(ps));syncBadge(false);
 }
 
 async function saveTasks(pid,tasks){
@@ -1088,7 +1090,7 @@ async function sheetsAction(type){
       // ⬆ 앱 → Sheets (Sheets 교체)
       await initSheetHeaders();
       // Projects 저장
-      const pRows=projects.map(p=>[p.id,p.name,p.client||'',p.pm||'',p.lead||'',p.start||'',p.end||'',p.desc||'',p.color||'',p.createdAt||'',p.createdBy||'']);
+      const pRows=projects.map(p=>[p.id,p.name,p.client||'',p.pm||'',p.lead||'',p.start||'',p.end||'',p.desc||'',p.color||'',p.createdAt||'',p.createdBy||'',p.markers?JSON.stringify(p.markers):'']);
       if(pRows.length) await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'clearAndWrite',sheetName:'Projects',values:pRows})});
       // Tasks 저장
       const tRows=allTasks.map(t=>[t.id,t.projectId,t.projectName||'',t.projectColor||'',t.cat||'',t.task,t.worker||'',t.weight||'',t.start||'',t.end||'',t.status||'시작 전',t.memo||'',t.actualEnd||'',t.createdBy||'',t.updatedAt||'',t.workerEmail||'',Array.isArray(t.workers)?t.workers.join(','):(t.worker||''),t.workerRole||'',t.subtasks?JSON.stringify(t.subtasks):'']);
@@ -1253,6 +1255,14 @@ async function loadAndRender(role){
   projects=await loadProjects();
   allTasks=await loadTasks();
   normalizeTaskProjectIds(); // projectId 불일치 자동 복구
+  // markers 보완: Sheets에 없는 경우 localStorage에서 복원
+  const lsProjs=JSON.parse(localStorage.getItem('pf_projects')||'[]');
+  projects.forEach(p=>{
+    if(!p.markers||!p.markers.length){
+      const lsp=lsProjs.find(x=>x.id===p.id);
+      if(lsp?.markers?.length) p.markers=lsp.markers;
+    }
+  });
   // 로컬 캐시 갱신 (다음 오프라인 접속 대비)
   if(isSynced()&&projects.length){
     localStorage.setItem('pf_projects',JSON.stringify(projects));
@@ -2792,7 +2802,7 @@ async function initSheetHeaders(){
     })});
     if(!r.values || r.values.length === 0){
       await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'append',sheetName:'Projects',
-        values:[['id','name','client','pm','lead','start','end','desc','color','createdAt','createdBy']]})});
+        values:[['id','name','client','pm','lead','start','end','desc','color','createdAt','createdBy','markers']]})});
       await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'append',sheetName:'Tasks',
         values:[['id','projectId','projectName','projectColor','cat','task','worker','weight','start','end','status','memo','actualEnd','createdBy','updatedAt','workerEmail','workers','workerRole','subtasks']]})});
       await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'append',sheetName:'TaskUpdates',
@@ -3504,11 +3514,18 @@ function getMarkerRows(){
 let _markerPid = '';
 function openMarkerModal(pid){
   _markerPid = pid;
-  const p = projects.find(x=>x.id===pid);
-  if(!p) return;
+  // pid로 못 찾으면 selectedPid, 또는 name으로 찾기
+  let p = projects.find(x=>x.id===pid);
+  if(!p && selectedPid) p = projects.find(x=>x.id===selectedPid);
+  if(!p) p = projects[0];
+  if(!p){ toast('프로젝트를 찾을 수 없습니다'); return; }
+  _markerPid = p.id; // 실제 찾은 프로젝트 id로 업데이트
   const body = document.getElementById('markerModalBody');
   body.innerHTML = '';
   (p.markers||[]).forEach(m=>addMarkerModalRow(m));
+  // 모달 타이틀에 프로젝트명 표시
+  const h3 = document.querySelector('#markerModal h3');
+  if(h3) h3.textContent = `🔖 중요일정 — ${p.name}`;
   openModal('markerModal');
 }
 function addMarkerModalRow(m={}){
