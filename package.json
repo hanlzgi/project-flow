@@ -1,6 +1,7 @@
 {
   "name": "project-flow",
   "version": "1.0.0",
+  "type" : "module",
   "description": "제작 스케줄 관리 시스템",
   "scripts": {
     "dev": "vercel dev",
