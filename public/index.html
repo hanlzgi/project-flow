@@ -266,6 +266,25 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
 <!-- 새 프로젝트 모달 -->
 <div class="modal-overlay" id="newProjectModal">
   <div class="modal wide">
+
+<!-- 중요일정 마커 전용 모달 -->
+<div class="modal-overlay" id="markerModal">
+  <div class="modal" style="width:460px;">
+    <button class="modal-close" onclick="closeModal('markerModal')">×</button>
+    <h3>🔖 중요일정 관리</h3>
+    <p style="font-size:12.5px;color:var(--ink2);margin-bottom:12px;line-height:1.6;">
+      보고회·납품일·검수 등 공정표에 표시할 중요 날짜를 등록하세요.
+    </p>
+    <div id="markerModalBody" style="display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto;margin-bottom:12px;"></div>
+    <button onclick="addMarkerModalRow()" class="btn btn-sm btn-secondary" style="width:100%;justify-content:center;">
+      ＋ 중요일정 추가
+    </button>
+    <div class="modal-actions" style="margin-top:14px;">
+      <button class="btn btn-secondary" onclick="closeModal('markerModal')">취소</button>
+      <button class="btn btn-primary" onclick="saveMarkerModal()">💾 저장</button>
+    </div>
+  </div>
+</div>
     <button class="modal-close" onclick="closeModal('newProjectModal')">×</button>
     <h3>새 프로젝트 등록</h3>
     <div class="form-grid" style="margin-bottom:14px;">
@@ -1349,11 +1368,10 @@ function ganttHTML(){
       const isToday=day.getTime()===today.getTime();
       const dateNum=day.getDate();
       const color=isToday?'var(--accent)':isHol||isSun?'#e03535':isSat?'#1e5fa8':'var(--ink2)';
-      const bg=isToday?'var(--alt)':'';
-      return `<div style="width:${DAY_W}px;flex-shrink:0;text-align:center;font-size:9.5px;font-family:'DM Mono',monospace;color:${color};${bg?`background:${bg};`:''}${isToday?'border-bottom:2px solid var(--accent);':''}border-right:1px solid ${d===4?'rgba(0,0,0,.12)':'var(--rule)'};padding:2px 0;line-height:1.3;">
-        <div style="font-size:9px;opacity:.7">${dayNames[d]}</div>
-        <div style="font-weight:${isToday?700:400}">${dateNum}</div>
-        ${isToday?`<div style="font-size:7px;color:var(--accent);font-weight:700;letter-spacing:-.02em;">TODAY</div>`:(isHol?`<div style="font-size:7px;color:#e03535">●</div>`:'')}
+      return `<div style="width:${DAY_W}px;flex-shrink:0;text-align:center;font-size:9.5px;font-family:'DM Mono',monospace;${isToday?'background:var(--accent);color:white;font-weight:700;':'color:'+color+';'}border-bottom:${isToday?'2px solid rgba(0,0,0,.2)':''};border-right:1px solid ${d===4?'rgba(0,0,0,.12)':'var(--rule)'};padding:2px 0;line-height:1.3;">
+        <div style="font-size:9px;opacity:${isToday?'.8':'.7'}">${dayNames[d]}</div>
+        <div>${dateNum}</div>
+        ${isToday?`<div style="font-size:7px;font-weight:800;letter-spacing:-.02em;opacity:.9;">TODAY</div>`:(isHol?`<div style="font-size:7px;color:#e03535">●</div>`:'')}
       </div>`;
     })
   ).join('');
@@ -1382,6 +1400,9 @@ function ganttHTML(){
   // ── 공정별 행 생성 (카테고리 그룹 + 서브태스크 토글) ──
   const cm={};
   pTasks.forEach(t=>{ if(!cm[t.cat])cm[t.cat]=[]; cm[t.cat].push(t); });
+
+  // 세부공정 있는 공정은 기본으로 펼침
+  pTasks.forEach(t=>{ if(t.subtasks&&t.subtasks.length>0) ganttExpanded.add(t.key); });
 
   let lH='', rH='';
 
@@ -1493,6 +1514,7 @@ function ganttHTML(){
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <div style="font-size:12px;color:var(--ink2);">${project.pm||'PM 미지정'} · ${project.start} ~ ${project.end} · ${pTasks.length}개 공정</div>
         <button class="btn btn-sm btn-secondary" onclick="openEditProjectModal('${project.id}')">✏️ 편집</button>
+        <button class="btn btn-sm" style="background:#7c4ba0;color:white;" onclick="openMarkerModal('${project.id}')">🔖 중요일정</button>
         <button class="btn btn-sm" style="background:var(--purple);color:white;" onclick="openGanttComment('${project.id}')">💬 코멘트</button>
       </div>
     </div>
@@ -2110,8 +2132,8 @@ function workerGanttHTML(mn){
     const ds=dateStr(day);const isHol=KO_HOL.has(ds);
     const isSun=d===6,isSat=d===5,isToday=day.getTime()===today.getTime();
     const color=isToday?'var(--accent)':isHol||isSun?'#e03535':isSat?'#1e5fa8':'var(--ink2)';
-    return`<div style="width:${DAY_W}px;flex-shrink:0;text-align:center;font-size:9.5px;font-family:'DM Mono',monospace;color:${color};${isToday?'background:var(--alt);':''}border-right:1px solid ${d===4?'rgba(0,0,0,.12)':'var(--rule)'};padding:2px 0;line-height:1.3;">
-      <div style="font-size:9px;opacity:.7">${dayNames[d]}</div><div style="font-weight:${isToday?700:400}">${day.getDate()}</div>${isHol?`<div style="font-size:7px;color:#e03535">●</div>`:''}
+    return`<div style="width:${DAY_W}px;flex-shrink:0;text-align:center;font-size:9.5px;font-family:'DM Mono',monospace;${isToday?'background:var(--accent);color:white;font-weight:700;':'color:'+color+';'}border-right:1px solid ${d===4?'rgba(0,0,0,.12)':'var(--rule)'};padding:2px 0;line-height:1.3;">
+      <div style="font-size:9px;opacity:${isToday?'.8':'.7'}">${dayNames[d]}</div><div>${day.getDate()}</div>${isToday?`<div style="font-size:7px;font-weight:800;opacity:.9;">TODAY</div>`:(isHol?`<div style="font-size:7px;color:#e03535">●</div>`:'')}
     </div>`;
   })).join('');
 
@@ -3064,10 +3086,10 @@ function buildGanttGrid(tasks, dateStart, dateEnd){
       const isHol=KO_HOLIDAYS.has(ds);const isSun=d===6;const isSat=d===5;
       const isToday=day.getTime()===today.getTime();const dateNum=day.getDate();
       const color=isToday?'var(--accent)':isHol||isSun?'#e03535':isSat?'#1e5fa8':'var(--ink2)';
-      return`<div style="width:${DAY_W}px;flex-shrink:0;text-align:center;font-size:9.5px;font-family:'DM Mono',monospace;color:${color};${isToday?'background:var(--alt);border-bottom:2px solid var(--accent);':''}border-right:1px solid ${d===4?'rgba(0,0,0,.12)':'var(--rule)'};padding:2px 0;line-height:1.3;">
-        <div style="font-size:9px;opacity:.7">${dayNames[d]}</div>
-        <div style="font-weight:${isToday?700:400}">${dateNum}</div>
-        ${isToday?`<div style="font-size:7px;color:var(--accent);font-weight:700;letter-spacing:-.02em;">TODAY</div>`:(isHol?`<div style="font-size:7px;color:#e03535">●</div>`:'')}
+      return`<div style="width:${DAY_W}px;flex-shrink:0;text-align:center;font-size:9.5px;font-family:'DM Mono',monospace;${isToday?'background:var(--accent);color:white;font-weight:700;':'color:'+color+';'}border-right:1px solid ${d===4?'rgba(0,0,0,.12)':'var(--rule)'};padding:2px 0;line-height:1.3;">
+        <div style="font-size:9px;opacity:${isToday?'.8':'.7'}">${dayNames[d]}</div>
+        <div>${dateNum}</div>
+        ${isToday?`<div style="font-size:7px;font-weight:800;opacity:.9;">TODAY</div>`:(isHol?`<div style="font-size:7px;color:#e03535">●</div>`:'')}
       </div>`;
     })
   ).join('');
@@ -3183,8 +3205,13 @@ function ganttWorkerFilterHTML(){
   const workerNames=[...new Set([...masterNames,...taskWorkers])].sort();
   if(!ganttWorkerFilter&&workerNames.length) ganttWorkerFilter=workerNames[0];
 
-  const myTasks=allTasks.filter(t=>t.worker===ganttWorkerFilter||
-    (Array.isArray(t.workers)&&t.workers.includes(ganttWorkerFilter))).filter(t=>t.start&&t.end);
+  const myTasks=allTasks.filter(t=>{
+    if(t.worker===ganttWorkerFilter) return true;
+    if(Array.isArray(t.workers)&&t.workers.includes(ganttWorkerFilter)) return true;
+    // 세부공정에 해당 작업자가 있으면 포함
+    if((t.subtasks||[]).some(s=>s.worker===ganttWorkerFilter)) return true;
+    return false;
+  }).filter(t=>t.start&&t.end);
 
   const workerInfo=wm.find(w=>w.name===ganttWorkerFilter);
 
@@ -3217,14 +3244,17 @@ function ganttWorkerFilterHTML(){
     const c=cc(t.cat);
     const bp=barPos(t.start,t.end);
     const done=t.status==='완료';
+    // 세부공정으로만 배정된 경우 표시
+    const isSubOnly=t.worker!==ganttWorkerFilter&&!(Array.isArray(t.workers)&&t.workers.includes(ganttWorkerFilter));
+    const mySubs=(t.subtasks||[]).filter(s=>s.worker===ganttWorkerFilter);
     lH+=`<div style="height:36px;border-bottom:1px solid var(--rule);display:flex;align-items:center;padding:0 10px;gap:6px;cursor:pointer;${done?'opacity:.55;':''}" onclick="openTaskDetail('${t.key}')">
       <span style="width:7px;height:7px;border-radius:50%;background:${t.projectColor||'#888'};flex-shrink:0;display:inline-block;" title="${t.projectName}"></span>
       <span class="cat-chip" style="background:${c.bg};color:${c.fg};font-size:9.5px;padding:1px 5px;flex-shrink:0;">${t.cat||'-'}</span>
-      <span style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;${done?'text-decoration:line-through;':''}">${t.task}</span>
+      <span style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;${done?'text-decoration:line-through;':''}">${t.task}${isSubOnly?`<span style="font-size:9.5px;color:var(--ink3);margin-left:4px;">(${mySubs.map(s=>s.name||'세부공정').join(', ')})</span>`:''}</span>
       <span class="status-badge ${sc(t.status)}" style="font-size:9px;padding:1px 5px;flex-shrink:0;">${t.status}</span>
     </div>`;
     rH+=`<div style="height:36px;border-bottom:1px solid var(--rule);position:relative;">${gridLines}
-      ${bp?`<div style="position:absolute;left:${bp.x}px;width:${bp.w}px;height:14px;top:50%;transform:translateY(-50%);background:${color};border-radius:3px;z-index:4;cursor:pointer;opacity:${done?.4:.85};" onclick="openTaskDetail('${t.key}')" title="${t.task}"></div>`:''}
+      ${bp?`<div style="position:absolute;left:${bp.x}px;width:${bp.w}px;height:14px;top:50%;transform:translateY(-50%);background:${color};border-radius:3px;z-index:4;cursor:pointer;opacity:${done?.4:isSubOnly?.5:.85};" onclick="openTaskDetail('${t.key}')" title="${t.task}"></div>`:''}
     </div>`;
   });
 
@@ -3374,6 +3404,54 @@ function getMarkerRows(){
     const sel=div.querySelector('select');
     return{date:inputs[0]?.value||'',label:inputs[1]?.value||'',type:sel?.value||'기타'};
   }).filter(m=>m.date&&m.label);
+}
+
+// ── 중요일정 전용 모달 ──────────────────────────────────────────────
+let _markerPid = '';
+function openMarkerModal(pid){
+  _markerPid = pid;
+  const p = projects.find(x=>x.id===pid);
+  if(!p) return;
+  const body = document.getElementById('markerModalBody');
+  body.innerHTML = '';
+  (p.markers||[]).forEach(m=>addMarkerModalRow(m));
+  openModal('markerModal');
+}
+function addMarkerModalRow(m={}){
+  const wrap = document.getElementById('markerModalBody');
+  if(!wrap) return;
+  const div = document.createElement('div');
+  div.style.cssText = 'display:flex;align-items:center;gap:6px;padding:6px 8px;background:var(--bg);border-radius:6px;border:1px solid var(--rule);';
+  div.innerHTML = `
+    <input type="date" value="${m.date||''}"
+      style="padding:5px 8px;border:1px solid var(--rule);border-radius:4px;font-family:inherit;font-size:12.5px;outline:none;width:130px;">
+    <input value="${m.label||''}" placeholder="이름 (보고회, 납품일...)"
+      style="flex:1;padding:5px 8px;border:1px solid var(--rule);border-radius:4px;font-family:inherit;font-size:12.5px;outline:none;">
+    <select style="padding:5px 6px;border:1px solid var(--rule);border-radius:4px;font-family:inherit;font-size:12px;outline:none;background:var(--paper);">
+      ${Object.entries(MARKER_COLORS).map(([k,c])=>`<option value="${k}" style="color:${c};" ${(m.type||'기타')===k?'selected':''}>${k}</option>`).join('')}
+    </select>
+    <button onclick="this.closest('div').remove()"
+      style="width:24px;height:24px;border:none;border-radius:4px;background:var(--alt);color:var(--accent);cursor:pointer;font-size:14px;line-height:1;flex-shrink:0;">×</button>
+  `;
+  wrap.appendChild(div);
+}
+function saveMarkerModal(){
+  const p = projects.find(x=>x.id===_markerPid);
+  if(!p) return;
+  const rows = [...document.getElementById('markerModalBody').children].map(div=>{
+    const inputs = div.querySelectorAll('input');
+    const sel = div.querySelector('select');
+    return{date:inputs[0]?.value||'', label:inputs[1]?.value||'', type:sel?.value||'기타'};
+  }).filter(m=>m.date&&m.label);
+  p.markers = rows;
+  // 저장
+  const ps = JSON.parse(localStorage.getItem('pf_projects')||'[]');
+  const pi = ps.findIndex(x=>x.id===_markerPid);
+  if(pi>=0){ps[pi].markers=rows;localStorage.setItem('pf_projects',JSON.stringify(ps));}
+  if(isSynced()){saveProject(p).catch(()=>{});}
+  closeModal('markerModal');
+  toast(`✓ 중요일정 ${rows.length}개 저장됨`);
+  renderMgr('gantt');
 }
 
 function toggleGanttRow(key){
