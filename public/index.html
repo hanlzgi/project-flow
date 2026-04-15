@@ -1302,16 +1302,61 @@ function openWorkerProjectDetail(pid,workerName){
 
 // ── 로그인 사용자 이메일로 내 작업 필터 ──────────────────────────
 function isMyTask(t){
-  const email=currentUser?.email||'';
-  const name=currentUser?.name||currentUser?.email?.split('@')[0]||'';
-  return (
-    t.workerEmail===email ||
-    t.worker===email ||
-    t.worker===name ||
-    (Array.isArray(t.workers)&&(t.workers.includes(email)||t.workers.includes(name))) ||
-    (t.subtasks||[]).some(s=>s.workerEmail===email||s.worker===email||s.worker===name)
+  const email  = (currentUser?.email||'').toLowerCase().trim();
+  const name   = (currentUser?.name||currentUser?.email?.split('@')[0]||'').trim();
+
+  // 작업자 마스터에서 현재 이메일로 등록된 작업자 이름 찾기
+  const wm = getWorkerMaster();
+  const masterWorker = wm.find(w=>
+    w.email && w.email.toLowerCase().trim()===email
   );
+  const masterName = masterWorker?.name||'';
+
+  // 비교 대상 집합 (이메일, 이름 모두)
+  const myEmails = new Set([email].filter(Boolean));
+  const myNames  = new Set([name, masterName].filter(Boolean));
+
+  const tWorker      = (t.worker||'').trim();
+  const tWorkerEmail = (t.workerEmail||'').toLowerCase().trim();
+  const tWorkers     = Array.isArray(t.workers)
+    ? t.workers.map(w=>(w||'').trim())
+    : [tWorker].filter(Boolean);
+
+  // 이메일 직접 매칭
+  if(tWorkerEmail && myEmails.has(tWorkerEmail)) return true;
+  // 이름 매칭 (worker 필드)
+  if(tWorker && myNames.has(tWorker)) return true;
+  // workers 배열 매칭 (이름 또는 이메일)
+  if(tWorkers.some(w=> myNames.has(w)||myEmails.has(w.toLowerCase()))) return true;
+  // 세부공정 담당자 매칭
+  if((t.subtasks||[]).some(s=>{
+    const sw=(s.worker||'').trim();
+    const se=(s.workerEmail||'').toLowerCase().trim();
+    return myNames.has(sw)||myEmails.has(se)||myEmails.has(sw.toLowerCase());
+  })) return true;
+
+  return false;
 }
+
+// 디버그용 — 브라우저 콘솔에서 checkMyTasks() 실행하면 현재 매칭 상황 출력
+window.checkMyTasks = function(){
+  const email=(currentUser?.email||'').toLowerCase();
+  const wm=getWorkerMaster();
+  const master=wm.find(w=>w.email&&w.email.toLowerCase()===email);
+  console.group('🔍 내 작업 매칭 진단');
+  console.log('로그인 이메일:', email);
+  console.log('로그인 이름:', currentUser?.name);
+  console.log('마스터 등록 작업자:', master||'없음');
+  console.log('전체 allTasks:', allTasks.length,'개');
+  const matched=allTasks.filter(t=>isMyTask(t));
+  console.log('매칭된 작업:', matched.length,'개');
+  matched.forEach(t=>console.log(' ✓', t.task, '| worker:', t.worker, '| workerEmail:', t.workerEmail));
+  const unmatched=allTasks.filter(t=>!isMyTask(t));
+  console.log('매칭 안 된 작업 샘플 (최대 5개):');
+  unmatched.slice(0,5).forEach(t=>console.log(' ✗', t.task, '| worker:', t.worker, '| workerEmail:', t.workerEmail));
+  console.groupEnd();
+  return {matched:matched.length, total:allTasks.length};
+};
 
 // ══ 작업자 패널 ══
 function renderWorkerPanel(panel){
@@ -1326,12 +1371,46 @@ function renderWorkerPanel(panel){
 
 // ── 내 작업 목록 ─────────────────────────────────
 function myTasksHTML(my,mn){
-  if(!my.length)return`<div class="page-wrap">
-    <div class="page-hd"><h1>${mn}의 작업</h1><p>배정된 작업이 없습니다</p></div>
-    <div class="empty-state" style="background:var(--paper);border:1px solid var(--rule);border-radius:10px;padding:40px;">
-      <div class="ei">📋</div>
-      <p>아직 배정된 작업이 없습니다<br><small style="color:var(--ink3)">관리자가 공정을 배치하면 여기에 표시됩니다</small></p>
-    </div></div>`;
+  if(!my.length){
+    const email=(currentUser?.email||'').toLowerCase();
+    const wm=getWorkerMaster();
+    const master=wm.find(w=>w.email&&w.email.toLowerCase()===email);
+    // 혹시 이름만 있는 tasks가 있는지 확인
+    const nameCandidates=allTasks.filter(t=>
+      t.worker&&t.worker.trim()===mn
+    );
+    return`<div class="page-wrap">
+      <div class="page-hd"><h1>${mn}의 작업</h1></div>
+      <div style="background:var(--paper);border:1px solid var(--rule);border-radius:10px;padding:24px;margin-bottom:12px;">
+        <div style="font-size:14px;font-weight:600;margin-bottom:14px;">📋 배정된 작업 없음</div>
+        <div style="font-size:12.5px;color:var(--ink2);line-height:1.8;">
+          <div style="margin-bottom:10px;">
+            <strong>현재 로그인 정보</strong><br>
+            이메일: <code style="background:var(--bg);padding:1px 6px;border-radius:3px;">${email}</code><br>
+            이름: <code style="background:var(--bg);padding:1px 6px;border-radius:3px;">${mn}</code>
+          </div>
+          <div style="margin-bottom:10px;">
+            <strong>작업자 마스터 연결 상태</strong><br>
+            ${master
+              ?`<span style="color:var(--green)">✅ 마스터 등록됨 — ${master.name} (${master.email})</span>`
+              :`<span style="color:var(--accent)">⚠️ 이 이메일로 등록된 작업자가 없습니다</span><br>
+               <span style="font-size:12px;">관리자 페이지 → 작업자 탭 → 작업자 등록에서 이메일 <strong>${email}</strong>로 등록해 주세요</span>`
+            }
+          </div>
+          ${nameCandidates.length>0?`
+          <div style="background:var(--yellow-lt);border-radius:6px;padding:10px 12px;border:1px solid rgba(200,154,26,.2);">
+            ⚠️ <strong>"${mn}"</strong> 이름으로 배정된 작업 <strong>${nameCandidates.length}건</strong>이 있지만 이메일이 연결되지 않았습니다.<br>
+            <span style="font-size:12px;margin-top:4px;display:block;">해결 방법: 관리자 → 작업자 탭 → <strong>${mn}</strong> 편집 → 이메일 <strong>${email}</strong> 입력 후 저장</span>
+          </div>`:''}
+        </div>
+      </div>
+      <div style="background:var(--blue-lt);border-radius:8px;padding:12px 16px;font-size:12px;color:var(--blue);line-height:1.7;">
+        <strong>💡 관리자에게 전달할 내용:</strong><br>
+        작업자 탭 → <strong>${mn}</strong> 편집 → 이메일 칸에 <strong>${email}</strong> 입력 → 저장<br>
+        그 후 이 화면에서 새로고침하면 작업이 보입니다.
+      </div>
+    </div>`;
+  }
 
   const bp={};
   my.forEach(t=>{
@@ -1988,38 +2067,78 @@ function saveWorkerMasterModal(){
   const name=document.getElementById('wm-name').value.trim();
   if(!name){toast('이름을 입력하세요');return;}
   const wm=getWorkerMaster();
+  const newEmail=(document.getElementById('wm-email').value.trim()||'').toLowerCase();
+
   if(_editWorkerId){
     const w=wm.find(x=>x.id===_editWorkerId);
     if(w){
       const oldName=w.name;
-      w.name=name;w.role=document.getElementById('wm-role').value.trim();
+      const oldEmail=(w.email||'').toLowerCase();
+      w.name=name;
+      w.role=document.getElementById('wm-role').value.trim();
       w.type=document.getElementById('wm-type').value;
       w.email=document.getElementById('wm-email').value.trim();
       w.skills=document.getElementById('wm-skills').value.trim();
       w.memo=document.getElementById('wm-memo').value.trim();
-      // 이름이 바뀌었으면 allTasks의 worker 필드도 갱신
-      if(oldName!==name){
-        allTasks.forEach(t=>{ if(t.worker===oldName)t.worker=name; });
+
+      // 이름·이메일 변경 시 allTasks + 로컬 일괄 갱신
+      const nameChanged=oldName!==name;
+      const emailAdded=!oldEmail&&newEmail;
+      const emailChanged=oldEmail&&oldEmail!==newEmail;
+
+      if(nameChanged||emailAdded||emailChanged){
+        allTasks.forEach(t=>{
+          if(t.worker===oldName) t.worker=name;
+          if(oldEmail&&t.workerEmail===oldEmail) t.workerEmail=w.email;
+          // 이름 일치하는데 이메일이 없던 task → 이메일 연결
+          if(t.worker===name&&!t.workerEmail&&w.email) t.workerEmail=w.email;
+          if(Array.isArray(t.workers))
+            t.workers=t.workers.map(wn=>wn===oldName?name:wn);
+        });
         const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');
-        ps.forEach(p=>(p.tasks||[]).forEach(t=>{if(t.worker===oldName)t.worker=name;}));
+        ps.forEach(p=>(p.tasks||[]).forEach(t=>{
+          if(t.worker===oldName) t.worker=name;
+          if(oldEmail&&t.workerEmail===oldEmail) t.workerEmail=w.email;
+          if(t.worker===name&&!t.workerEmail&&w.email) t.workerEmail=w.email;
+          if(Array.isArray(t.workers))
+            t.workers=t.workers.map(wn=>wn===oldName?name:wn);
+        }));
         localStorage.setItem('pf_projects',JSON.stringify(ps));
+        toast(`✓ ${name} 수정 · 기존 작업 이메일 연결 완료`);
+      } else {
+        toast(`✓ ${name} 수정됨`);
       }
     }
   } else {
+    const email=document.getElementById('wm-email').value.trim();
     wm.push({
       id:'w'+Date.now(),name,
       role:document.getElementById('wm-role').value.trim(),
       type:document.getElementById('wm-type').value,
-      email:document.getElementById('wm-email').value.trim(),
+      email,
       skills:document.getElementById('wm-skills').value.trim(),
       memo:document.getElementById('wm-memo').value.trim(),
       color:WORKER_COLORS[wm.length%WORKER_COLORS.length],
       createdAt:new Date().toISOString()
     });
+    // 신규 등록 — 이름이 같은 기존 task에 이메일 자동 연결
+    if(email){
+      let linked=0;
+      allTasks.forEach(t=>{
+        if(t.worker===name&&!t.workerEmail){t.workerEmail=email;linked++;}
+      });
+      const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');
+      ps.forEach(p=>(p.tasks||[]).forEach(t=>{
+        if(t.worker===name&&!t.workerEmail) t.workerEmail=email;
+      }));
+      localStorage.setItem('pf_projects',JSON.stringify(ps));
+      toast(`✓ ${name} 등록됨${linked?` · ${linked}개 작업 이메일 연결됨`:''}`);
+    } else {
+      toast(`✓ ${name} 등록됨`);
+    }
   }
   saveWorkerMaster(wm);
   closeModal('workerMasterModal');
-  toast(`✓ ${name} ${_editWorkerId?'수정':'등록'}됨`);
   renderMgr('workers');
 }
 function deleteWorkerMaster(){
