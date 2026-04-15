@@ -2644,19 +2644,17 @@ async function saveTaskDetail(){
   const projForMarker = projects.find(p=>p.id===t.projectId);
   if(projForMarker){
     if(!projForMarker.markers) projForMarker.markers=[];
-    // 이 task의 기존 마커 제거
     projForMarker.markers = projForMarker.markers.filter(m=>m._taskKey!==key);
     if(markerEnabled && t.end){
       projForMarker.markers.push({
         date: t.end,
         label: markerLabel,
         type: markerType,
-        _taskKey: key  // 나중에 제거하기 위한 참조
+        _taskKey: key
       });
     }
-    // projects 로컬 저장에도 markers 반영
+    // localStorage에도 markers 반영 (proj 재사용, const 중복 제거)
     if(proj){ proj.markers = projForMarker.markers; localStorage.setItem('pf_projects',JSON.stringify(ps)); }
-    // Sheets 저장 (비동기)
     if(isSynced()) saveProject(projForMarker).catch(()=>{});
   }
 
@@ -3659,15 +3657,15 @@ async function deleteTask(key){
   // 메모리에서 제거
   allTasks = allTasks.filter(t=>t.key!==key);
 
-  // 해당 task와 연결된 마커도 정리
-  const proj = projects.find(p=>p.id===t.projectId);
-  if(proj?.markers){
-    proj.markers = proj.markers.filter(m=>m._taskKey!==key);
-  }
-
-  // localStorage 반영
+  // 해당 task와 연결된 마커도 정리 + localStorage 반영
   const ps = JSON.parse(localStorage.getItem('pf_projects')||'[]');
   const proj = ps.find(p=>p.id===t.projectId);
+  // 메모리 프로젝트의 마커도 정리
+  const memProj = projects.find(p=>p.id===t.projectId);
+  if(memProj?.markers){
+    memProj.markers = memProj.markers.filter(m=>m._taskKey!==key);
+    if(proj) proj.markers = memProj.markers;
+  }
   if(proj&&proj.tasks){
     proj.tasks = proj.tasks.filter(pt=>pt.key!==key);
     localStorage.setItem('pf_projects', JSON.stringify(ps));
