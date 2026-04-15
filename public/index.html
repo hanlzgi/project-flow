@@ -317,6 +317,81 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
   </div>
 </div>
 
+<!-- 공정 상세/편집 모달 -->
+<div class="modal-overlay" id="taskDetailModal">
+  <div class="modal" style="width:600px;">
+    <button class="modal-close" onclick="closeModal('taskDetailModal')">×</button>
+    <h3 id="tdTitle">공정 상세</h3>
+    <input type="hidden" id="td-key">
+
+    <div class="form-grid" style="margin-bottom:14px;">
+      <div class="form-group full">
+        <label class="form-label">작업명</label>
+        <input class="form-input" id="td-task" placeholder="작업명">
+      </div>
+      <div class="form-group">
+        <label class="form-label">카테고리</label>
+        <input class="form-input" id="td-cat" placeholder="예: 영상, 기획">
+      </div>
+      <div class="form-group">
+        <label class="form-label">비중 (%)</label>
+        <input class="form-input" id="td-weight" placeholder="20">
+      </div>
+      <div class="form-group">
+        <label class="form-label">시작일</label>
+        <input class="form-input" type="date" id="td-start">
+      </div>
+      <div class="form-group">
+        <label class="form-label">마감일</label>
+        <input class="form-input" type="date" id="td-end">
+      </div>
+      <div class="form-group">
+        <label class="form-label">상태</label>
+        <select class="form-select" id="td-status">
+          <option>시작 전</option><option>진행 중</option><option>검토 요청</option><option>수정 중</option><option>완료</option><option>보류</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">담당자</label>
+        <select class="form-select" id="td-worker" onchange="toggleTdWorkerCustom(this)">
+          <option value="">미지정</option>
+        </select>
+      </div>
+      <div class="form-group" id="td-workerCustomWrap" style="display:none;">
+        <label class="form-label">직접 입력</label>
+        <input class="form-input" id="td-workerCustom" placeholder="이름 입력">
+      </div>
+      <div class="form-group full">
+        <label class="form-label">담당자 이메일 (알림용)</label>
+        <input class="form-input" type="email" id="td-workerEmail" placeholder="worker@company.com">
+      </div>
+      <div class="form-group full">
+        <label class="form-label">메모 / 지시사항</label>
+        <textarea class="form-textarea" id="td-memo" rows="2" placeholder="관리자 코멘트, 참고사항 등"></textarea>
+      </div>
+    </div>
+
+    <!-- 세부 공정 (서브태스크) -->
+    <div style="margin-bottom:14px;">
+      <div style="font-size:12px;font-weight:600;color:var(--ink2);margin-bottom:8px;display:flex;align-items:center;gap:6px;">
+        📌 세부 공정 분할
+        <span style="font-size:11px;font-weight:400;color:var(--ink3);">(하나의 공정을 여러 명이 나눠서 담당)</span>
+      </div>
+      <div id="td-subtasks"></div>
+    </div>
+
+    <div style="background:var(--yellow-lt);border-radius:6px;padding:9px 12px;font-size:12px;color:#7a5c00;margin-bottom:14px;">
+      💡 세부 공정을 추가하면 한 작업을 여러 담당자가 역할을 나눠서 진행할 수 있습니다.<br>예: 영상 구성안 → 콘티(박윤서) + 스크립트(윤성필) + 감수(이하늘)
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('taskDetailModal')">취소</button>
+      <button class="btn btn-green" onclick="notifyWorker(document.getElementById('td-key').value)" style="color:white;">📧 담당자 알림</button>
+      <button class="btn btn-primary" onclick="saveTaskDetail()">저장</button>
+    </div>
+  </div>
+</div>
+
 <!-- 작업자 마스터 등록/편집 모달 -->
 <div class="modal-overlay" id="workerMasterModal">
   <div class="modal">
@@ -960,6 +1035,129 @@ async function saveNewProject(){
   setLoading(false);
 }
 
+// ══ 공정표 작업 클릭 — 상세 편집 패널 ══
+function openTaskDetail(key){
+  const t=allTasks.find(t=>t.key===key);
+  if(!t){ toast('작업을 찾을 수 없습니다'); return; }
+
+  // 공정 상세 모달 데이터 세팅
+  document.getElementById('tdTitle').textContent = t.task;
+  document.getElementById('td-key').value   = key;
+  document.getElementById('td-task').value  = t.task;
+  document.getElementById('td-cat').value   = t.cat||'';
+  document.getElementById('td-start').value = t.start||'';
+  document.getElementById('td-end').value   = t.end||'';
+  document.getElementById('td-weight').value= t.weight||'';
+  document.getElementById('td-status').value= t.status||'시작 전';
+  document.getElementById('td-memo').value  = t.memo||'';
+
+  // 작업자 목록 구성 (마스터 + 기존 allTasks 작업자)
+  const wm = getWorkerMaster();
+  const existingWorkers = [...new Set(allTasks.map(t=>t.worker).filter(Boolean))];
+  const allWorkers = [...new Set([...wm.map(w=>w.name), ...existingWorkers])];
+
+  const workerSel = document.getElementById('td-worker');
+  workerSel.innerHTML =
+    `<option value="">미지정</option>` +
+    allWorkers.map(w => `<option value="${w}" ${w===t.worker?'selected':''}>${w}</option>`).join('') +
+    `<option value="__custom__">+ 직접 입력</option>`;
+
+  // 현재 담당자 이메일
+  const workerInfo = wm.find(w=>w.name===t.worker);
+  document.getElementById('td-workerEmail').value = t.workerEmail||workerInfo?.email||'';
+  document.getElementById('td-workerCustomWrap').style.display='none';
+
+  // 하위 공정(서브태스크) 렌더
+  renderSubtasks(t);
+
+  openModal('taskDetailModal');
+}
+
+function toggleTdWorkerCustom(sel){
+  document.getElementById('td-workerCustomWrap').style.display = sel.value==='__custom__'?'block':'none';
+  // 선택된 작업자 이메일 자동 채우기
+  const wm = getWorkerMaster();
+  const w = wm.find(x=>x.name===sel.value);
+  if(w) document.getElementById('td-workerEmail').value = w.email||'';
+}
+
+function renderSubtasks(t){
+  const subs = t.subtasks||[];
+  const wrap = document.getElementById('td-subtasks');
+  wrap.innerHTML = subs.map((s,i)=>`
+    <div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--rule);">
+      <input value="${s.name||''}" placeholder="세부 공정명" style="flex:1;padding:4px 8px;border:1px solid var(--rule);border-radius:4px;font-size:12.5px;font-family:inherit;outline:none;" data-si="${i}" data-field="name">
+      <input value="${s.worker||''}" placeholder="담당자" style="width:90px;padding:4px 8px;border:1px solid var(--rule);border-radius:4px;font-size:12px;font-family:inherit;outline:none;" data-si="${i}" data-field="worker">
+      <input type="date" value="${s.end||''}" style="width:110px;padding:4px 7px;border:1px solid var(--rule);border-radius:4px;font-size:12px;font-family:inherit;outline:none;" data-si="${i}" data-field="end">
+      <select style="padding:4px 6px;border:1px solid var(--rule);border-radius:4px;font-size:11.5px;font-family:inherit;outline:none;" data-si="${i}" data-field="status">
+        ${['시작 전','진행 중','완료','보류'].map(st=>`<option ${s.status===st?'selected':''}>${st}</option>`).join('')}
+      </select>
+      <button onclick="removeSubtask(${i})" style="padding:2px 7px;border:none;background:transparent;color:var(--ink3);cursor:pointer;font-size:13px;">×</button>
+    </div>`).join('') +
+    `<button onclick="addSubtask()" style="margin-top:6px;padding:5px 10px;border:1px dashed var(--rule);border-radius:4px;background:transparent;color:var(--ink2);cursor:pointer;font-size:12px;font-family:inherit;width:100%;text-align:left;">＋ 세부 공정 추가</button>`;
+}
+
+function addSubtask(){
+  const key = document.getElementById('td-key').value;
+  const t = allTasks.find(t=>t.key===key); if(!t)return;
+  if(!t.subtasks)t.subtasks=[];
+  t.subtasks.push({name:'',worker:'',end:'',status:'시작 전'});
+  renderSubtasks(t);
+}
+
+function removeSubtask(idx){
+  const key = document.getElementById('td-key').value;
+  const t = allTasks.find(t=>t.key===key); if(!t||!t.subtasks)return;
+  t.subtasks.splice(idx,1);
+  renderSubtasks(t);
+}
+
+async function saveTaskDetail(){
+  const key    = document.getElementById('td-key').value;
+  const t      = allTasks.find(t=>t.key===key); if(!t)return;
+
+  const selWorker = document.getElementById('td-worker').value;
+  const customWorker = document.getElementById('td-workerCustom')?.value?.trim();
+  const workerName = selWorker==='__custom__' ? customWorker : selWorker;
+
+  // 서브태스크 현재 값 수집
+  const subs = [];
+  document.querySelectorAll('#td-subtasks [data-si]').forEach(el=>{
+    const i=parseInt(el.dataset.si);
+    if(!subs[i])subs[i]={};
+    subs[i][el.dataset.field]=el.value;
+  });
+
+  // allTasks 즉시 반영
+  t.task     = document.getElementById('td-task').value.trim()||t.task;
+  t.cat      = document.getElementById('td-cat').value.trim()||t.cat;
+  t.start    = document.getElementById('td-start').value||t.start;
+  t.end      = document.getElementById('td-end').value||t.end;
+  t.weight   = document.getElementById('td-weight').value;
+  t.status   = document.getElementById('td-status').value;
+  t.memo     = document.getElementById('td-memo').value.trim();
+  t.worker   = workerName||t.worker;
+  t.workerEmail = document.getElementById('td-workerEmail').value.trim()||t.workerEmail;
+  if(subs.length)t.subtasks=subs;
+
+  // 로컬 저장 — project.tasks에도 반영
+  const ps = JSON.parse(localStorage.getItem('pf_projects')||'[]');
+  const proj = ps.find(p=>p.id===t.projectId);
+  if(proj&&proj.tasks){
+    const pt = proj.tasks.find(pt=>pt.key===key);
+    if(pt){ Object.assign(pt, t); }
+    localStorage.setItem('pf_projects', JSON.stringify(ps));
+  }
+
+  // 상태 이력 저장
+  await updateStatus(key,{status:t.status, memo:t.memo, actualEnd:t.actualEnd||''});
+
+  closeModal('taskDetailModal');
+  toast('✓ 공정 저장됨');
+  // 공정표 새로고침
+  renderMgr('gantt');
+}
+
 // ══ 작업 상태 업데이트 ══
 function openTU(key){const t=allTasks.find(t=>t.key===key);if(!t)return;document.getElementById('tuTitle').textContent=t.task;document.getElementById('tu-key').value=key;document.getElementById('tu-status').value=t.status||'시작 전';document.getElementById('tu-memo').value=t.memo||'';document.getElementById('tu-end').value=t.actualEnd||'';openModal('taskUpdateModal');}
 async function submitTaskUpdate(){
@@ -1072,11 +1270,19 @@ function saveWorkerMasterModal(){
   if(_editWorkerId){
     const w=wm.find(x=>x.id===_editWorkerId);
     if(w){
+      const oldName=w.name;
       w.name=name;w.role=document.getElementById('wm-role').value.trim();
       w.type=document.getElementById('wm-type').value;
       w.email=document.getElementById('wm-email').value.trim();
       w.skills=document.getElementById('wm-skills').value.trim();
       w.memo=document.getElementById('wm-memo').value.trim();
+      // 이름이 바뀌었으면 allTasks의 worker 필드도 갱신
+      if(oldName!==name){
+        allTasks.forEach(t=>{ if(t.worker===oldName)t.worker=name; });
+        const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');
+        ps.forEach(p=>(p.tasks||[]).forEach(t=>{if(t.worker===oldName)t.worker=name;}));
+        localStorage.setItem('pf_projects',JSON.stringify(ps));
+      }
     }
   } else {
     wm.push({
@@ -1147,34 +1353,42 @@ async function saveTaskAssignByWorker(){
   const checked=[...document.querySelectorAll('.taw-chk:checked')].map(c=>c.dataset.key);
   const roles={};document.querySelectorAll('.taw-role').forEach(r=>roles[r.dataset.key]=r.value.trim());
 
-  // allTasks 업데이트
+  // allTasks 즉시 업데이트
   let changed=0;
   allTasks.forEach(t=>{
     if(t.projectId!==pid)return;
     if(checked.includes(t.key)){
-      // 복수 작업자 지원 — workers 배열에 추가
       if(!Array.isArray(t.workers))t.workers=t.worker?[t.worker]:[];
       if(!t.workers.includes(w.name))t.workers.push(w.name);
-      t.worker=t.workers[0]; // 기본 담당자는 첫 번째
+      t.worker=t.workers[0];
       if(roles[t.key])t.workerRole=roles[t.key];
       if(w.email)t.workerEmail=w.email;
       changed++;
     }
   });
 
-  // 로컬 저장
+  // localStorage 동기화
   const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');
   const proj=ps.find(x=>x.id===pid);
   if(proj&&proj.tasks){
     proj.tasks.forEach(pt=>{
-      const at=allTasks.find(t=>t.key===pt.key||t.task===pt.task);
+      const at=allTasks.find(t=>(t.key===pt.key)||(t.task===pt.task&&t.projectId===pid));
       if(at){pt.workers=at.workers;pt.worker=at.worker;pt.workerRole=at.workerRole;pt.workerEmail=at.workerEmail;}
     });
     localStorage.setItem('pf_projects',JSON.stringify(ps));
   }
 
+  // Sheets에도 TaskUpdates 기록
+  if(isSynced()&&changed>0){
+    const updRows=allTasks
+      .filter(t=>t.projectId===pid&&checked.includes(t.key))
+      .map(t=>[new Date().toISOString(),currentUser?.email||'',t.key,t.status,`[배정] ${w.name}`,t.actualEnd||'']);
+    api('/api/sheets',{method:'POST',body:JSON.stringify({action:'append',sheetName:'TaskUpdates',values:updRows})}).catch(()=>{});
+  }
+
   closeModal('taskAssignWorkerModal');
-  toast(`✓ ${w.name}님에게 ${changed}개 공정 배치됨`);
+  toast(`✓ ${w.name}님에게 ${changed}개 공정 배치됨 — 공정표와 전체 작업에 반영됩니다`);
+  // 공정표 + 전체작업 즉시 갱신
   renderMgr('workers');
 }
 
