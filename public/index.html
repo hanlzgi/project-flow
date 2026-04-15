@@ -1409,25 +1409,102 @@ async function submitWorkerSchedule(){
 }
 
 // ══ D단계: Sheets 연동 설정 ══
-function saveSheets(){
-  const url=document.getElementById('sheets-url').value.trim();if(!url){toast('URL 입력');return;}
-  const m=url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);const id=m?m[1]:url;
-  localStorage.setItem('pf_sheets_id',id);closeModal('sheetsModal');syncBadge(true);
-  // 안내 메시지 표시
-  showSheetsGuide(id);
-  initSheetHeaders();
-}
-function showSheetsGuide(sheetId){
-  const msg=`✅ Google Sheets 연동 저장됨!\n\n이제 Vercel에서 한 가지만 더 설정해야 합니다:\n\n1. vercel.com 접속 → project-flow 클릭\n2. Settings → Environment Variables\n3. 아래 값 추가 또는 수정:\n   이름: GOOGLE_SHEET_ID\n   값: ${sheetId}\n4. Redeploy (Deployments → ··· → Redeploy)\n\n완료되면 모든 데이터가 Google Sheets에 저장됩니다.`;
-  alert(msg);
-}
-async function initSheetHeaders(){
+async function saveSheets(){
+  const url=document.getElementById('sheets-url').value.trim();
+  if(!url){toast('Sheets URL 또는 ID를 입력하세요');return;}
+  const m=url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  const id=m?m[1]:url;
+
+  // 저장 버튼 로딩 표시
+  const btn=document.querySelector('#sheetsModal .btn-green');
+  if(btn){btn.textContent='연결 확인 중...';btn.disabled=true;}
+  setLoading(true);
+
+  localStorage.setItem('pf_sheets_id',id);
+
   try{
+    // 실제 Sheets API 호출로 연동 테스트
+    await initSheetHeaders();
+    // 성공 — 조용히 토스트만
+    closeModal('sheetsModal');
+    syncBadge(true);
+    toast('✅ Google Sheets 연동 완료! 이제 모든 데이터가 Sheets에 저장됩니다.');
+  }catch(e){
+    // 실패 — 무엇이 문제인지 구체적으로 안내
+    localStorage.removeItem('pf_sheets_id');
+    syncBadge(false);
+    const errMsg = parseSheetError(e.message, id);
+    showSheetsError(errMsg, id);
+  }finally{
+    if(btn){btn.textContent='연동 저장';btn.disabled=false;}
+    setLoading(false);
+  }
+}
+
+function parseSheetError(errMsg, sheetId){
+  // 오류 유형별 한국어 안내
+  if(errMsg.includes('404')||errMsg.includes('not found'))
+    return {
+      title:'스프레드시트를 찾을 수 없습니다',
+      desc:'입력한 URL 또는 ID가 올바른지 확인하세요.',
+      step:'Sheets URL을 다시 확인하고 재입력해 주세요.'
+    };
+  if(errMsg.includes('403')||errMsg.includes('permission')||errMsg.includes('PERMISSION'))
+    return {
+      title:'접근 권한이 없습니다',
+      desc:'서비스 계정에 스프레드시트 편집 권한이 없습니다.',
+      step:`Google Sheets에서 아래 서비스 계정 이메일에 편집자 권한을 공유하세요.\n(Vercel → Settings → GOOGLE_SERVICE_ACCOUNT_JSON 에서 "client_email" 값 확인)`
+    };
+  if(errMsg.includes('GOOGLE_SHEET_ID')||errMsg.includes('미설정')||errMsg.includes('500'))
+    return {
+      title:'Vercel 환경변수 설정이 필요합니다',
+      desc:'서버에 GOOGLE_SHEET_ID가 아직 등록되지 않았습니다.',
+      step:`Vercel에서 환경변수를 추가하세요:\n이름: GOOGLE_SHEET_ID\n값: ${sheetId}\n\n설정 후 Redeploy 하면 연동이 완료됩니다.\n(Vercel → project-flow → Settings → Environment Variables)`
+    };
+  if(errMsg.includes('서비스 계정')||errMsg.includes('service_account'))
+    return {
+      title:'Google 서비스 계정이 설정되지 않았습니다',
+      desc:'Vercel에 GOOGLE_SERVICE_ACCOUNT_JSON이 없습니다.',
+      step:'Vercel → Settings → Environment Variables에서\nGOOGLE_SERVICE_ACCOUNT_JSON 값을 추가하세요.'
+    };
+  return {
+    title:'연동 오류',
+    desc:errMsg,
+    step:`Vercel에서 아래 환경변수가 모두 설정됐는지 확인하세요:\n• GOOGLE_SHEET_ID: ${sheetId}\n• GOOGLE_SERVICE_ACCOUNT_JSON\n• ANTHROPIC_API_KEY`
+  };
+}
+
+function showSheetsError(err, sheetId){
+  // 모달 안에 오류 메시지 인라인 표시 (alert 대신)
+  let errBox=document.getElementById('sheetsErrorBox');
+  if(!errBox){
+    errBox=document.createElement('div');
+    errBox.id='sheetsErrorBox';
+    const modal=document.querySelector('#sheetsModal .modal');
+    const actions=document.querySelector('#sheetsModal .modal-actions');
+    if(modal&&actions) modal.insertBefore(errBox,actions);
+  }
+  errBox.innerHTML=`
+    <div style="background:#fff0f0;border:1px solid rgba(200,82,26,.3);border-radius:8px;padding:12px 14px;margin:10px 0;font-size:12.5px;">
+      <div style="font-weight:600;color:var(--accent);margin-bottom:5px;">⚠ ${err.title}</div>
+      <div style="color:var(--ink2);margin-bottom:6px;">${err.desc}</div>
+      <div style="background:var(--alt);border-radius:4px;padding:8px 10px;font-size:12px;color:var(--ink);white-space:pre-line;line-height:1.7;">${err.step}</div>
+    </div>`;
+}
+
+async function initSheetHeaders(){
+  // 헤더 행 생성 — 이미 있으면 중복되지 않도록 먼저 읽기 시도
+  const r=await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'read',sheetName:'Projects'})});
+  // Projects 시트가 비어있을 때만 헤더 추가
+  if(!r.values||r.values.length===0){
     await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'append',sheetName:'Projects',values:[['id','name','client','pm','lead','start','end','desc','color','createdAt','createdBy']]})});
     await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'append',sheetName:'Tasks',values:[['id','projectId','projectName','projectColor','cat','task','worker','weight','start','end','status','memo','actualEnd','createdBy','updatedAt']]})});
     await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'append',sheetName:'TaskUpdates',values:[['updatedAt','updatedBy','taskKey','status','memo','actualEnd']]})});
-    toast('✓ Sheets 초기 구조 생성됨');
-  }catch(e){console.warn(e.message);}
+    await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'append',sheetName:'Workers',values:[['id','name','role','type','email','skills','color','memo','createdAt']]})});
+  }
+  // 성공 시 기존 오류 박스 제거
+  const errBox=document.getElementById('sheetsErrorBox');
+  if(errBox)errBox.remove();
 }
 
 // ══ 인력 마스터 DB ══
