@@ -804,7 +804,16 @@ async function overlayLatestStatus(tasks){
 
 async function saveProject(p){
   const row=[p.id,p.name,p.client,p.pm,p.lead,p.start,p.end,p.desc,p.color,p.createdAt,p.createdBy||currentUser?.email||''];
-  if(isSynced()){try{await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'append',sheetName:'Projects',values:[row]})});syncBadge(true);return;}catch(e){console.warn(e.message);}}
+  if(isSynced()){
+    try{
+      // 전체 프로젝트 목록으로 덮어씀 (중복 방지)
+      const allRows = projects.map(pr=>[pr.id,pr.name,pr.client||'',pr.pm||'',pr.lead||'',pr.start||'',pr.end||'',pr.desc||'',pr.color||'',pr.createdAt||'',pr.createdBy||'']);
+      // 저장하려는 p가 없으면 추가
+      if(!allRows.find(r=>r[0]===p.id)) allRows.push(row);
+      await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'clearAndWrite',sheetName:'Projects',values:allRows})});
+      syncBadge(true);return;
+    }catch(e){console.warn(e.message);}
+  }
   const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');const i=ps.findIndex(x=>x.id===p.id);if(i>=0)ps[i]=p;else ps.push(p);localStorage.setItem('pf_projects',JSON.stringify(ps));syncBadge(false);
 }
 
@@ -814,8 +823,7 @@ async function saveTasks(pid,tasks){
     const id=t.id||`${pid}_${Date.now()}_${Math.random().toString(36).slice(2,5)}`;
     return {...t,id,key:t.key||id};
   });
-  // 열 순서: id,projectId,projectName,projectColor,cat,task,worker,weight,start,end,status,memo,actualEnd,createdBy,updatedAt,workerEmail,workers,workerRole,subtasks
-  const rows=tasksWithKey.map(t=>[
+  const newRows=tasksWithKey.map(t=>[
     t.id,pid,p?.name||'',p?.color||'',t.cat||'기타',t.task,
     t.worker||'',t.weight||'',t.start||'',t.end||'',
     t.status||'시작 전',t.memo||'',t.actualEnd||'',
@@ -825,7 +833,22 @@ async function saveTasks(pid,tasks){
     t.workerRole||'',
     t.subtasks?JSON.stringify(t.subtasks):'',
   ]);
-  if(isSynced()){try{await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'append',sheetName:'Tasks',values:rows})});return tasksWithKey;}catch(e){console.warn(e.message);}}
+  if(isSynced()){
+    try{
+      // 이 프로젝트 외의 기존 Tasks 행 유지 + 이 프로젝트 Tasks는 새 값으로 교체
+      const existingResp=await api('/api/sheets',{method:'POST',body:JSON.stringify({action:'read',sheetName:'Tasks'})});
+      let existingRows=[];
+      if(existingResp.values&&existingResp.values.length>1){
+        const[,...rows]=existingResp.values;
+        existingRows=rows.filter(r=>r[0]&&r[1]!==pid); // 다른 프로젝트 행만 유지
+      }
+      await api('/api/sheets',{method:'POST',body:JSON.stringify({
+        action:'clearAndWrite',sheetName:'Tasks',
+        values:[...existingRows,...newRows]
+      })});
+      return tasksWithKey;
+    }catch(e){console.warn(e.message);}
+  }
   const ps=JSON.parse(localStorage.getItem('pf_projects')||'[]');const proj=ps.find(x=>x.id===pid);
   if(proj){proj.tasks=tasksWithKey;localStorage.setItem('pf_projects',JSON.stringify(ps));}
   return tasksWithKey;
@@ -902,7 +925,14 @@ async function loadAndRender(role){
           systemRole:r[9]||'worker',
         }));
         if(workers.length){
-          localStorage.setItem('pf_workers',JSON.stringify(workers));
+          // 이메일 기준 중복 제거
+          const seen=new Set();
+          const deduped=workers.filter(w=>{
+            const key=(w.email||w.id||w.name).toLowerCase();
+            if(seen.has(key))return false;
+            seen.add(key);return true;
+          });
+          localStorage.setItem('pf_workers',JSON.stringify(deduped));
         }
       }
     }catch(e){console.warn('Workers 로드 실패:',e.message);}
@@ -2303,11 +2333,19 @@ function getWorkerMaster(){
   return JSON.parse(localStorage.getItem('pf_workers')||'[]');
 }
 function saveWorkerMaster(wm){
-  localStorage.setItem('pf_workers',JSON.stringify(wm));
+  // 중복 제거 후 저장 (이메일 기준, 없으면 id 기준)
+  const seen=new Set();
+  const deduped=wm.filter(w=>{
+    const key=(w.email||w.id||w.name).toLowerCase();
+    if(seen.has(key))return false;
+    seen.add(key);return true;
+  });
+  localStorage.setItem('pf_workers',JSON.stringify(deduped));
   if(isSynced()){
+    // append 대신 clearAndWrite — 항상 최신 상태로 덮어씀
     api('/api/sheets',{method:'POST',body:JSON.stringify({
-      action:'append',sheetName:'Workers',
-      values:wm.map(w=>[w.id,w.name,w.role,w.type,w.email,w.skills,w.color,w.memo,w.createdAt,w.systemRole||'worker'])
+      action:'clearAndWrite', sheetName:'Workers',
+      values:deduped.map(w=>[w.id,w.name,w.role||'',w.type||'internal',w.email||'',w.skills||'',w.color||'',w.memo||'',w.createdAt||'',w.systemRole||'worker'])
     })}).catch(()=>{});
   }
 }
