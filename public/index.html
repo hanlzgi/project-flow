@@ -262,6 +262,7 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
     <div style="flex-shrink:0;padding:6px 16px;border-top:1px solid var(--rule);background:var(--paper);display:flex;align-items:center;gap:8px;">
       <span id="syncBadgeWorker" class="local-badge" style="font-size:11px;">● 로컬</span>
       <button onclick="openSheetsModal()" style="font-size:11.5px;color:var(--blue);background:none;border:none;cursor:pointer;text-decoration:underline;padding:0;">Sheets 연동</button>
+      <button onclick="openNotionModal()" style="font-size:11.5px;color:var(--purple);background:none;border:none;cursor:pointer;text-decoration:underline;padding:0;margin-left:4px;">🔗 Notion</button>
       <span style="flex:1"></span>
       <button onclick="workerSheetsAction('load')" title="Sheets에서 최신 데이터 불러오기"
         style="padding:3px 10px;font-size:11.5px;border:1px solid var(--blue);border-radius:4px;background:var(--blue-lt);color:var(--blue);cursor:pointer;font-family:inherit;">
@@ -2171,7 +2172,7 @@ function myTasksHTML(my,mn){
           </div>
         </div>
         <div style="overflow-x:auto"><table class="task-table">
-          <thead><tr><th>카테고리</th><th>공정</th><th>세부역할</th><th>상태</th><th>마감</th><th>메모</th></tr></thead>
+          <thead><tr><th>카테고리</th><th>공정</th><th>세부역할</th><th>상태</th><th>마감</th><th>메모</th><th style="width:60px;"></th></tr></thead>
           <tbody>${p.tasks.map(t=>`<tr>
             <td><span class="cat-chip" style="background:${cc(t.cat).bg};color:${cc(t.cat).fg}">${t.cat||'-'}</span></td>
             <td style="font-weight:500">${t.task}</td>
@@ -2267,13 +2268,13 @@ function workerGanttHTML(mn){
       const rowBg=myTask?`${c.bg}40`:'';
       const myDot=myTask?`<span style="width:6px;height:6px;border-radius:50%;background:${c.fg};flex-shrink:0;display:inline-block;"></span>`:'';
 
-      lH+=`<div class="g-row" style="background:${rowBg};${myTask?'cursor:pointer;':''}" ${myTask?`onclick="openTU('${t.key}')"`:''}  title="${myTask?'클릭하여 상태 업데이트':''}">
+      lH+=`<div class="g-row" style="background:${rowBg};${myTask?'cursor:pointer;':''}" ${myTask?`onclick="openWorkerEdit('${t.key}')"`:''}  title="${myTask?'클릭하여 일정 편집':''}">
         ${myDot}
-        <span class="g-name" style="font-weight:${myTask?600:400};color:${myTask?'var(--ink)':'var(--ink2)'};">${t.task}</span>
+        <span class="g-name" style="font-weight:${myTask?600:400};color:${myTask?'var(--ink)':'var(--ink2)'};">${t.task}${myTask?' ✏️':''}</span>
         <span class="g-worker" style="font-size:10.5px;${myTask?`color:${c.fg};font-weight:600`:''}">${t.worker||'-'}</span>
         <span class="status-badge ${sc(t.status)}" style="font-size:9.5px;padding:1px 6px;">${t.status}</span>
       </div>`;
-      rH+=`<div style="height:34px;position:relative;" ${myTask?`onclick="openTU('${t.key}')" title="클릭하여 상태 업데이트" style="cursor:pointer;"`:'style="position:relative;"'}>
+      rH+=`<div style="height:34px;position:relative;" ${myTask?`onclick="openWorkerEdit('${t.key}')" title="클릭하여 일정 편집" style="cursor:pointer;"`:'style="position:relative;"'}>
         ${gridLines}
         ${showToday?`<div style="position:absolute;left:${todayX}px;top:0;bottom:0;width:2px;background:var(--accent);opacity:.6;z-index:4;pointer-events:none;"></div>`:''}
         <div style="position:absolute;left:${barX}px;width:${barW}px;height:18px;top:50%;transform:translateY(-50%);background:${barBg};border-radius:3px;z-index:3;${myTask?'box-shadow:0 2px 6px rgba(0,0,0,.18);':''};overflow:hidden;display:flex;align-items:center;padding:0 6px;font-size:10px;font-weight:500;color:white;white-space:nowrap;">
@@ -2288,7 +2289,7 @@ function workerGanttHTML(mn){
       <div>
         <div style="font-size:16px;font-weight:600">${project.name} <span style="font-size:12px;font-weight:400;color:var(--ink2);">공정표</span></div>
         <div style="display:flex;align-items:center;gap:8px;margin-top:3px;font-size:12px;color:var(--ink2);">
-          <span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:var(--accent);display:inline-block;"></span>내 담당 공정</span>
+          <span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:var(--accent);display:inline-block;"></span>내 담당 공정 <span style="font-size:10.5px;color:var(--blue);">(클릭 → 편집)</span></span>
           <span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:#ccc;display:inline-block;"></span>전체 공정</span>
         </div>
       </div>
@@ -4108,7 +4109,7 @@ async function submitWorkerEdit() {
   }
 
   closeModal('workerEditModal');
-  toast('📨 검토 요청이 제출됐습니다. 관리자 승인 후 반영됩니다.');
+  toast('📨 일정 변경이 제출됐습니다. 확인 후 반영됩니다.');
   updateReviewBadge();
 }
 
@@ -4176,7 +4177,7 @@ function reviewPanelHTML() {
 
   return '<div class="page-wrap">' +
     '<div class="page-hd"><h1>🔍 변경 검토</h1>' +
-    '<p>작업자가 요청한 일정 변경사항을 검토하고 승인 또는 반려하세요</p></div>' +
+    '<p>팀원이 제출한 일정 변경 요청을 확인하고 승인 또는 반려하세요</p></div>' +
     '<div class="card"><div class="card-hd">⏳ 검토 대기 <span style="background:var(--yellow-lt);color:var(--yellow);padding:1px 8px;border-radius:8px;font-size:12px;margin-left:6px;">' + pending.length + '건</span></div>' +
     '<div class="card-body">' +
       (pending.length ? pending.map(c => renderCard(c, true)).join('') :
@@ -4363,7 +4364,7 @@ init();
     <button class="modal-close" onclick="closeModal('workerEditModal')">×</button>
     <h3>✏️ <span id="weTitle">일정 편집 요청</span></h3>
     <div style="background:var(--blue-lt);border-radius:6px;padding:9px 12px;margin-bottom:14px;font-size:12px;color:var(--blue);line-height:1.6;">
-      변경사항은 바로 적용되지 않으며, <strong>관리자 검토 후 승인</strong>되면 반영됩니다.
+      일정 변경 내용을 입력하고 제출하면, 담당 PM이 확인 후 확정합니다.
     </div>
     <input type="hidden" id="we-key">
     <div style="display:flex;flex-direction:column;gap:10px;">
@@ -4381,7 +4382,7 @@ init();
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeModal('workerEditModal')">취소</button>
-      <button class="btn btn-primary" onclick="submitWorkerEdit()">📨 검토 요청 제출</button>
+      <button class="btn btn-primary" onclick="submitWorkerEdit()">📨 일정 변경 제출</button>
     </div>
   </div>
 </div>
@@ -4414,7 +4415,7 @@ init();
     <div class="form-group" style="margin-bottom:10px;">
       <label class="form-label">Notion Integration Token</label>
       <input class="form-input" id="notion-token" placeholder="secret_xxxxxxxxxxxx" type="password">
-      <span style="font-size:11px;color:var(--ink3);">Notion → 설정 → API → 통합 만들기에서 발급</span>
+      <span style="font-size:11px;color:var(--ink3);">Notion 설정 → 연결 → 통합 만들기 → 내부 통합 → 토큰 복사</span>
     </div>
     <div class="form-group" style="margin-bottom:10px;">
       <label class="form-label">Projects DB ID</label>
