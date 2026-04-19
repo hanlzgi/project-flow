@@ -4310,15 +4310,27 @@ async function notionAction(type) {
   const statusEl = document.getElementById('notion-status');
   if (statusEl) statusEl.innerHTML = '<span class="spinner"></span> 처리 중...';
   setLoading(true);
-  // localStorage에 저장된 Notion 설정 읽기 (Vercel env var 미설정 시 fallback)
+  // 모달 입력 필드에서 직접 읽기 (저장 안 해도 바로 사용)
+  const _t  = (document.getElementById('notion-token')?.value    || '').trim();
+  const _pd = (document.getElementById('notion-proj-db')?.value  || '').trim();
+  const _td = (document.getElementById('notion-task-db')?.value  || '').trim();
+  // 없으면 localStorage 값 fallback
   const ns = JSON.parse(localStorage.getItem('pf_notion_settings')||'{}');
-  const nc = { token: ns.token||'', projDbId: ns.projDbId||'', taskDbId: ns.taskDbId||'' };
+  const nc = {
+    token:    _t  || ns.token    || '',
+    projDbId: _pd || ns.projDbId || '',
+    taskDbId: _td || ns.taskDbId || '',
+  };
   try {
+    if (!nc.token) {
+      if (statusEl) statusEl.innerHTML = '<span style="color:var(--accent);">❌ Notion Token을 입력하세요</span>';
+      setLoading(false); return;
+    }
     if (type === 'test') {
       const res = await api('/api/notion', {method:'POST', body:JSON.stringify({action:'test', ...nc})});
       if (statusEl) statusEl.innerHTML = res.ok
         ? '<span style="color:var(--green);">✅ Notion 연결 성공: ' + (res.name||'Bot') + '</span>'
-        : '<span style="color:var(--accent);">연결 실패: ' + (res.error||'') + '</span>';
+        : '<span style="color:var(--accent);">❌ 연결 실패: ' + (res.error||'') + '</span>';
     } else if (type === 'syncToNotion') {
       const allT = [];
       projects.forEach(p => { allT.push(...getProjectTasks(p.id)); });
