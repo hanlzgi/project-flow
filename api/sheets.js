@@ -164,6 +164,32 @@ export default async function handler(req, res) {
       });
       const data = await resp.json();
       return res.status(200).json({ created: toCreate, result: data });
+    } else if (action === 'updateChange') {
+      // TaskChanges 시트의 특정 행 상태 업데이트 (승인/반려)
+      const { changeId, status: chStatus, reviewedBy, reviewedAt, reviewComment } = req.body;
+      const findResp = await fetch(
+        `${baseUrl}/values/${encodeURIComponent('TaskChanges!A:A')}`, 
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      const findData = await findResp.json();
+      const rows = findData.values || [];
+      const rowIdx = rows.findIndex(r => r[0] === changeId);
+      if (rowIdx < 1) return res.status(404).json({ error: '변경 기록을 찾을 수 없습니다' });
+      const sheetRow = rowIdx + 1;
+      const colRange = `TaskChanges!J${sheetRow}:M${sheetRow}`;
+      const updResp = await fetch(
+        `${baseUrl}/values/${encodeURIComponent(colRange)}?valueInputOption=USER_ENTERED`,
+        {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            range: colRange, majorDimension: 'ROWS',
+            values: [[chStatus, reviewedBy, reviewedAt, reviewComment || '']],
+          }),
+        }
+      );
+      const updData = await updResp.json();
+      return res.status(200).json({ ok: true, result: updData });
     }
 
     return res.status(400).json({ error: '알 수 없는 action: ' + action });

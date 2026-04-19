@@ -166,6 +166,21 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
 .sheets-badge{font-size:11px;padding:2px 8px;border-radius:10px;background:var(--green-lt);color:var(--green);font-weight:500;}
 .local-badge{font-size:11px;padding:2px 8px;border-radius:10px;background:var(--yellow-lt);color:var(--yellow);font-weight:500;}
 @media(max-width:768px){.main-layout{grid-template-columns:1fr;}.sidebar{display:none;}.stat-grid{grid-template-columns:1fr 1fr;}.dash-row{grid-template-columns:1fr;}}
+
+.review-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;background:var(--accent);color:white;border-radius:8px;font-size:10px;font-weight:700;padding:0 4px;margin-left:4px;}
+.change-diff{display:flex;flex-direction:column;gap:3px;font-size:12px;margin-top:3px;}
+.diff-old{color:var(--accent);text-decoration:line-through;background:var(--alt);padding:2px 6px;border-radius:3px;display:inline-block;}
+.diff-new{color:var(--green);font-weight:600;background:var(--green-lt);padding:2px 6px;border-radius:3px;display:inline-block;}
+.diff-field{font-size:11px;color:var(--ink3);margin-bottom:1px;font-weight:600;letter-spacing:.03em;}
+.notion-badge{font-size:11px;padding:2px 8px;border-radius:10px;background:#f0e8f8;color:#7c4ba0;font-weight:500;}
+.review-card{background:var(--paper);border:1px solid var(--rule);border-radius:10px;padding:14px 16px;margin-bottom:10px;}
+.review-card.pending{border-left:3px solid var(--yellow);}
+.review-card.approved{border-left:3px solid var(--green);opacity:.7;}
+.review-card.rejected{border-left:3px solid var(--accent);opacity:.7;}
+.worker-edit-btn{padding:3px 9px;font-size:11.5px;border:1.5px solid var(--blue);border-radius:4px;background:var(--blue-lt);color:var(--blue);cursor:pointer;font-family:inherit;font-weight:500;transition:all .15s;}
+.worker-edit-btn:hover{background:var(--blue);color:white;}
+.pending-indicator{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--yellow);margin-right:5px;animation:pulse 1.5s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
 </style>
 </head>
 <body>
@@ -236,6 +251,7 @@ body{font-family:'DM Sans','Noto Sans KR',sans-serif;background:var(--bg);color:
       <div style="padding:10px 12px;border-top:1px solid var(--rule);display:flex;align-items:center;gap:6px;">
         <span id="syncBadge" class="local-badge">● 로컬</span>
         <button onclick="openSheetsModal()" style="font-size:11px;color:var(--blue);background:none;border:none;cursor:pointer;text-decoration:underline;">Sheets 연동</button>
+      <button onclick="openNotionModal()" style="font-size:11px;color:var(--purple);background:none;border:none;cursor:pointer;text-decoration:underline;margin-left:8px;">🔗 Notion</button>
       </div>
     </div>
     <div class="content-area" id="managerContent"></div>
@@ -1194,8 +1210,10 @@ function renderManagerApp(){
     <button class="nav-btn" onclick="mNav('tasks',this)">📋 전체 작업</button>
     <button class="nav-btn" onclick="mNav('gantt',this)">📅 공정표</button>
     <button class="nav-btn" onclick="mNav('workers',this)">👥 작업자</button>
+    <button class="nav-btn" id="reviewNavBtn" onclick="mNav('review',this)">🔍 검토<span class="review-badge" id="reviewBadge" style="display:none">0</span></button>
   `;
   loadAndRender();
+  loadPendingChanges().then(updateReviewBadge);
 }
 function renderWorkerApp(){
   document.getElementById('managerLayout').style.display='none';
@@ -1308,6 +1326,7 @@ function renderMgr(panel){
   }
   else if(panel==='tasks') c.innerHTML=tasksHTML();
   else if(panel==='workers') c.innerHTML=workersHTML();
+  else if(panel==='review') c.innerHTML=reviewPanelHTML();
 }
 
 // ── 공통 갱신: 데이터 변경 후 전체 탭 동기화 ──────────────────────
@@ -1733,6 +1752,7 @@ function tasksHTML(){
             <div style="font-size:10.5px;font-weight:600;color:${ddayColor};">${ddayTxt}</div>
           </td>
           <td style="font-size:12px;color:var(--ink2);max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.memo||''}</td>
+          <td><button class="worker-edit-btn" onclick="openWorkerEdit('${t.key}')">📅 편집</button></td>
           <td style="white-space:nowrap;">
             <button onclick="openTaskDetail('${t.key}')" style="padding:3px 8px;font-size:11px;border:1px solid var(--rule);border-radius:4px;background:transparent;cursor:pointer;" title="공정 편집">✏️</button>
             <button onclick="notifyWorker('${t.key}')" style="padding:3px 8px;font-size:11px;border:1px solid var(--green-lt);border-radius:4px;background:var(--green-lt);cursor:pointer;color:var(--green);" title="알림">📧</button>
@@ -4020,7 +4040,419 @@ async function recoverData(){
     toast('복구 실패: '+e.message);
   }
 }
+// ═══════════════════════════════════════════════════════════════════
+// ① 작업자 일정 편집 & 검토 요청
+// ═══════════════════════════════════════════════════════════════════
+
+let pendingChanges = [];
+
+function openWorkerEdit(key) {
+  const t = allTasks.find(t => t.key === key);
+  if (!t) { toast('작업을 찾을 수 없습니다'); return; }
+  document.getElementById('weTitle').textContent = t.task;
+  document.getElementById('we-key').value = key;
+  document.getElementById('we-start').value = t.start || '';
+  document.getElementById('we-end').value = t.end || '';
+  document.getElementById('we-status').value = t.status || '시작 전';
+  document.getElementById('we-actualEnd').value = t.actualEnd || '';
+  document.getElementById('we-memo').value = t.memo || '';
+  openModal('workerEditModal');
+}
+
+async function submitWorkerEdit() {
+  const key = document.getElementById('we-key').value;
+  const t = allTasks.find(t => t.key === key);
+  if (!t) return;
+
+  const nStart  = document.getElementById('we-start').value;
+  const nEnd    = document.getElementById('we-end').value;
+  const nStatus = document.getElementById('we-status').value;
+  const nActEnd = document.getElementById('we-actualEnd').value;
+  const nMemo   = document.getElementById('we-memo').value.trim();
+
+  const changes = {};
+  if (nStart  !== (t.start||''))            changes['시작일']    = { old: t.start||'',        new: nStart };
+  if (nEnd    !== (t.end||''))              changes['마감일']    = { old: t.end||'',           new: nEnd };
+  if (nStatus !== (t.status||'시작 전'))   changes['상태']      = { old: t.status||'시작 전', new: nStatus };
+  if (nActEnd !== (t.actualEnd||''))        changes['실제완료일'] = { old: t.actualEnd||'',    new: nActEnd };
+  if (nMemo   !== (t.memo||''))             changes['메모']      = { old: t.memo||'',          new: nMemo };
+
+  if (!Object.keys(changes).length) { toast('변경된 내용이 없습니다'); return; }
+
+  const changeId = 'chg_' + Date.now();
+  const now = new Date().toISOString();
+  const mn = currentUser.workerName || currentUser.name || currentUser.email.split('@')[0];
+
+  const row = {
+    changeId, taskKey: key, taskId: t.id||key, projectId: t.projectId||'',
+    projectName: t.projectName||'', workerName: mn, workerEmail: currentUser.email||'',
+    submittedAt: now, changesJSON: JSON.stringify(changes),
+    status: 'pending', reviewedBy: '', reviewedAt: '', reviewComment: '', taskName: t.task,
+  };
+
+  const local = JSON.parse(localStorage.getItem('pf_changes')||'[]');
+  local.push(row);
+  localStorage.setItem('pf_changes', JSON.stringify(local));
+  pendingChanges = local;
+
+  if (isSynced()) {
+    try {
+      await api('/api/sheets', {method:'POST', body:JSON.stringify({action:'createSheets', values:['TaskChanges']})});
+      await api('/api/sheets', {method:'POST', body:JSON.stringify({
+        action:'append', sheetName:'TaskChanges',
+        values:[[row.changeId, row.taskKey, row.taskId, row.projectId, row.projectName,
+          row.workerName, row.workerEmail, row.submittedAt, row.changesJSON,
+          row.status, row.reviewedBy, row.reviewedAt, row.reviewComment, row.taskName]],
+      })});
+    } catch(e) { console.warn('[submitWorkerEdit] Sheets 실패:', e.message); }
+  }
+
+  closeModal('workerEditModal');
+  toast('📨 검토 요청이 제출됐습니다. 관리자 승인 후 반영됩니다.');
+  updateReviewBadge();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ② 관리자 검토 패널
+// ═══════════════════════════════════════════════════════════════════
+
+async function loadPendingChanges() {
+  pendingChanges = JSON.parse(localStorage.getItem('pf_changes')||'[]');
+  if (isSynced()) {
+    try {
+      const data = await api('/api/sheets', {method:'POST', body:JSON.stringify({action:'read', sheetName:'TaskChanges'})});
+      if (data.values && data.values.length > 1) {
+        const [, ...rows] = data.values;
+        pendingChanges = rows.map(r => ({
+          changeId:r[0]||'', taskKey:r[1]||'', taskId:r[2]||'', projectId:r[3]||'',
+          projectName:r[4]||'', workerName:r[5]||'', workerEmail:r[6]||'',
+          submittedAt:r[7]||'', changesJSON:r[8]||'{}', status:r[9]||'pending',
+          reviewedBy:r[10]||'', reviewedAt:r[11]||'', reviewComment:r[12]||'', taskName:r[13]||'',
+        }));
+        localStorage.setItem('pf_changes', JSON.stringify(pendingChanges));
+      }
+    } catch(e) { console.warn('[loadPendingChanges]:', e.message); }
+  }
+  return pendingChanges;
+}
+
+function updateReviewBadge() {
+  const cnt = pendingChanges.filter(c => c.status === 'pending').length;
+  const badge = document.getElementById('reviewBadge');
+  if (badge) { badge.textContent = cnt; badge.style.display = cnt ? 'inline-flex' : 'none'; }
+}
+
+function reviewPanelHTML() {
+  const pending  = pendingChanges.filter(c => c.status === 'pending');
+  const resolved = pendingChanges.filter(c => c.status !== 'pending');
+
+  const renderCard = (c, isPending) => {
+    let changes = {};
+    try { changes = JSON.parse(c.changesJSON||'{}'); } catch(e) {}
+    const diffItems = Object.entries(changes).map(([field, v]) =>
+      '<div class="diff-field">' + field + '</div>' +
+      '<div class="change-diff">' +
+        '<span class="diff-old">이전: ' + (v.old||'(없음)') + '</span>' +
+        '&nbsp;→&nbsp;' +
+        '<span class="diff-new">변경: ' + (v.new||'(없음)') + '</span>' +
+      '</div>'
+    ).join('');
+    const sColor = c.status==='approved' ? 'var(--green)' : c.status==='rejected' ? 'var(--accent)' : 'var(--yellow)';
+    const sTxt   = c.status==='approved' ? '✓ 승인됨' : c.status==='rejected' ? '✗ 반려됨' : '⏳ 검토 대기';
+    return '<div class="review-card ' + c.status + '">' +
+      '<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px;">' +
+        '<div><div style="font-weight:600;font-size:13px;">' + (c.taskName||c.taskKey) + '</div>' +
+        '<div style="font-size:11.5px;color:var(--ink2);margin-top:2px;">' +
+          c.projectName + ' · ' + c.workerName + ' · ' +
+          (c.submittedAt ? new Date(c.submittedAt).toLocaleString('ko') : '') +
+        '</div></div>' +
+        '<span style="font-size:11px;font-weight:600;color:' + sColor + ';padding:2px 8px;border-radius:8px;background:' + sColor + '18;">' + sTxt + '</span>' +
+      '</div>' +
+      '<div style="background:var(--bg);border-radius:6px;padding:10px 12px;margin-bottom:10px;">' + diffItems + '</div>' +
+      (c.reviewComment ? '<div style="font-size:12px;color:var(--accent);padding:6px 10px;background:var(--alt);border-radius:4px;margin-bottom:8px;">💬 코멘트: ' + c.reviewComment + '</div>' : '') +
+      (isPending ? '<div style="text-align:right;"><button class="btn btn-sm" onclick="openReviewDetail(\'' + c.changeId + '\')" style="background:var(--blue-lt);color:var(--blue);border:1px solid var(--blue);">🔍 검토하기</button></div>' : '') +
+    '</div>';
+  };
+
+  return '<div class="page-wrap">' +
+    '<div class="page-hd"><h1>🔍 변경 검토</h1>' +
+    '<p>작업자가 요청한 일정 변경사항을 검토하고 승인 또는 반려하세요</p></div>' +
+    '<div class="card"><div class="card-hd">⏳ 검토 대기 <span style="background:var(--yellow-lt);color:var(--yellow);padding:1px 8px;border-radius:8px;font-size:12px;margin-left:6px;">' + pending.length + '건</span></div>' +
+    '<div class="card-body">' +
+      (pending.length ? pending.map(c => renderCard(c, true)).join('') :
+        '<div style="text-align:center;padding:20px;color:var(--ink3);font-size:13px;">검토 대기 중인 요청이 없습니다</div>') +
+    '</div></div>' +
+    (resolved.length ? '<div class="card"><div class="card-hd">완료된 검토 <span style="font-size:12px;color:var(--ink3);font-weight:400;">' + resolved.length + '건</span></div><div class="card-body">' + resolved.map(c => renderCard(c, false)).join('') + '</div></div>' : '') +
+  '</div>';
+}
+
+function openReviewDetail(changeId) {
+  const c = pendingChanges.find(c => c.changeId === changeId);
+  if (!c) return;
+  document.getElementById('rv-changeId').value = changeId;
+  let changes = {};
+  try { changes = JSON.parse(c.changesJSON||'{}'); } catch(e) {}
+  const diffHTML = Object.entries(changes).map(([field, v]) =>
+    '<div style="margin-bottom:8px;"><div class="diff-field" style="margin-bottom:3px;">' + field + '</div>' +
+    '<div class="change-diff"><span class="diff-old">이전: ' + (v.old||'(없음)') + '</span>&nbsp;→&nbsp;<span class="diff-new">변경: ' + (v.new||'(없음)') + '</span></div></div>'
+  ).join('');
+  document.getElementById('rv-body').innerHTML =
+    '<div style="margin-bottom:10px;"><div style="font-weight:600;font-size:14px;margin-bottom:4px;">' + (c.taskName||c.taskKey) + '</div>' +
+    '<div style="font-size:12px;color:var(--ink2);">' + c.projectName + ' · ' + c.workerName + ' (' + c.workerEmail + ')<br>제출: ' +
+    (c.submittedAt ? new Date(c.submittedAt).toLocaleString('ko') : '') + '</div></div>' +
+    '<div style="background:var(--bg);border-radius:8px;padding:12px 14px;">' + diffHTML + '</div>';
+  document.getElementById('rv-rejectBox').style.display = 'none';
+  document.getElementById('rv-rejectBtn').style.display = 'none';
+  document.getElementById('rv-comment').value = '';
+  openModal('reviewDetailModal');
+}
+
+function toggleRejectBox() {
+  const box = document.getElementById('rv-rejectBox');
+  const btn = document.getElementById('rv-rejectBtn');
+  const isOpen = box.style.display !== 'none';
+  box.style.display = isOpen ? 'none' : 'block';
+  btn.style.display  = isOpen ? 'none' : 'inline-flex';
+}
+
+async function submitApprove() {
+  const changeId = document.getElementById('rv-changeId').value;
+  const c = pendingChanges.find(c => c.changeId === changeId);
+  if (!c) return;
+  setLoading(true);
+  const t = allTasks.find(t => t.key === c.taskKey);
+  if (t) {
+    let changes = {};
+    try { changes = JSON.parse(c.changesJSON||'{}'); } catch(e) {}
+    if (changes['시작일'])    t.start     = changes['시작일'].new;
+    if (changes['마감일'])    t.end       = changes['마감일'].new;
+    if (changes['상태'])      t.status    = changes['상태'].new;
+    if (changes['실제완료일']) t.actualEnd = changes['실제완료일'].new;
+    if (changes['메모'])      t.memo      = changes['메모'].new;
+    t.updatedBy = currentUser.email; t.updatedAt = new Date().toISOString();
+  }
+  const now = new Date().toISOString();
+  c.status = 'approved'; c.reviewedBy = currentUser.email; c.reviewedAt = now;
+  localStorage.setItem('pf_changes', JSON.stringify(pendingChanges));
+  if (isSynced()) {
+    try {
+      await api('/api/sheets', {method:'POST', body:JSON.stringify({
+        action:'updateChange', changeId, status:'approved',
+        reviewedBy: currentUser.email, reviewedAt: now, reviewComment: '',
+      })});
+      if (t) await saveTasks(t.projectId, getProjectTasks(t.projectId));
+    } catch(e) { console.warn('[approve]:', e.message); }
+  } else if (t) {
+    const ps = JSON.parse(localStorage.getItem('pf_projects')||'[]');
+    const proj = ps.find(p => p.id === t.projectId);
+    if (proj && proj.tasks) { const pt = proj.tasks.find(pt => pt.key === t.key); if (pt) Object.assign(pt, t); }
+    localStorage.setItem('pf_projects', JSON.stringify(ps));
+  }
+  closeModal('reviewDetailModal');
+  toast('✓ 승인되었습니다. 일정이 반영됩니다.');
+  updateReviewBadge();
+  refreshAll('task');
+  renderMgr('review');
+  setLoading(false);
+}
+
+async function submitReject() {
+  const changeId = document.getElementById('rv-changeId').value;
+  const comment  = document.getElementById('rv-comment').value.trim();
+  if (!comment) { toast('반려 코멘트를 입력하세요'); return; }
+  const c = pendingChanges.find(c => c.changeId === changeId);
+  if (!c) return;
+  const now = new Date().toISOString();
+  c.status = 'rejected'; c.reviewedBy = currentUser.email; c.reviewedAt = now; c.reviewComment = comment;
+  localStorage.setItem('pf_changes', JSON.stringify(pendingChanges));
+  if (isSynced()) {
+    try {
+      await api('/api/sheets', {method:'POST', body:JSON.stringify({
+        action:'updateChange', changeId, status:'rejected',
+        reviewedBy: currentUser.email, reviewedAt: now, reviewComment: comment,
+      })});
+    } catch(e) { console.warn('[reject]:', e.message); }
+  }
+  closeModal('reviewDetailModal');
+  toast('반려되었습니다. 코멘트가 기록됩니다.');
+  updateReviewBadge();
+  renderMgr('review');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ③ Notion 연동
+// ═══════════════════════════════════════════════════════════════════
+
+function openNotionModal() {
+  const s = JSON.parse(localStorage.getItem('pf_notion_settings')||'{}');
+  document.getElementById('notion-token').value   = s.token||'';
+  document.getElementById('notion-proj-db').value = s.projDbId||'';
+  document.getElementById('notion-task-db').value = s.taskDbId||'';
+  const el = document.getElementById('notion-status');
+  el.innerHTML = s.token
+    ? '<span style="color:var(--green);">설정됨 — Vercel 환경변수에도 NOTION_TOKEN, NOTION_PROJECTS_DB_ID, NOTION_TASKS_DB_ID를 설정하세요</span>'
+    : '<span style="color:var(--ink3);">Notion Integration Token을 입력하고 연결 테스트를 해보세요</span>';
+  openModal('notionModal');
+}
+
+function saveNotionSettings() {
+  const s = {
+    token:    document.getElementById('notion-token').value.trim(),
+    projDbId: document.getElementById('notion-proj-db').value.trim(),
+    taskDbId: document.getElementById('notion-task-db').value.trim(),
+  };
+  localStorage.setItem('pf_notion_settings', JSON.stringify(s));
+  toast('Notion 설정 저장됨 (Vercel 환경변수에도 동일하게 설정하세요)');
+}
+
+async function notionAction(type) {
+  const statusEl = document.getElementById('notion-status');
+  if (statusEl) statusEl.innerHTML = '<span class="spinner"></span> 처리 중...';
+  setLoading(true);
+  try {
+    if (type === 'test') {
+      const res = await api('/api/notion', {method:'POST', body:JSON.stringify({action:'test'})});
+      if (statusEl) statusEl.innerHTML = res.ok
+        ? '<span style="color:var(--green);">Notion 연결 성공: ' + (res.name||'Bot') + '</span>'
+        : '<span style="color:var(--accent);">연결 실패</span>';
+    } else if (type === 'syncToNotion') {
+      const allT = [];
+      projects.forEach(p => { allT.push(...getProjectTasks(p.id)); });
+      const res = await api('/api/notion', {method:'POST', body:JSON.stringify({action:'syncToNotion', projects, tasks: allT})});
+      if (statusEl) statusEl.innerHTML = res.ok
+        ? '<span style="color:var(--green);">' + res.message + '</span>'
+        : '<span style="color:var(--accent);">' + (res.error||'오류') + '</span>';
+      if (res.ok) toast('Notion에 동기화됐습니다');
+    } else if (type === 'syncFromNotion') {
+      const res = await api('/api/notion', {method:'POST', body:JSON.stringify({action:'syncFromNotion'})});
+      if (!res.ok) throw new Error(res.error||'Notion 읽기 실패');
+      if (res.projects && res.projects.length) {
+        res.projects.forEach(np => {
+          const ex = projects.find(p => p.id === np.id);
+          if (ex) Object.assign(ex, np);
+          else projects.push({...np, tasks:[], color:'#888', markers:[]});
+        });
+        localStorage.setItem('pf_projects', JSON.stringify(projects));
+      }
+      if (res.tasks && res.tasks.length) {
+        res.tasks.forEach(nt => {
+          const ex = allTasks.find(t => t.key === nt.key);
+          if (ex) Object.assign(ex, nt); else allTasks.push(nt);
+        });
+        projects.forEach(p => { p.tasks = allTasks.filter(t => t.projectId === p.id); });
+        localStorage.setItem('pf_projects', JSON.stringify(projects));
+      }
+      if (statusEl) statusEl.innerHTML = '<span style="color:var(--green);">Notion에서 불러옴: 프로젝트 ' + (res.projects||[]).length + '개, 태스크 ' + (res.tasks||[]).length + '개</span>';
+      toast('Notion 데이터를 불러왔습니다');
+      refreshAll('task');
+    }
+  } catch(e) {
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--accent);">오류: ' + e.message + '</span>';
+    toast('Notion 오류: ' + e.message);
+  }
+  setLoading(false);
+}
+
+
 init();
 </script>
+
+<!-- ═══ 작업자 일정 편집 요청 모달 ═══ -->
+<div class="modal-overlay" id="workerEditModal">
+  <div class="modal" style="width:520px;">
+    <button class="modal-close" onclick="closeModal('workerEditModal')">×</button>
+    <h3>✏️ <span id="weTitle">일정 편집 요청</span></h3>
+    <div style="background:var(--blue-lt);border-radius:6px;padding:9px 12px;margin-bottom:14px;font-size:12px;color:var(--blue);line-height:1.6;">
+      변경사항은 바로 적용되지 않으며, <strong>관리자 검토 후 승인</strong>되면 반영됩니다.
+    </div>
+    <input type="hidden" id="we-key">
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <div class="form-grid">
+        <div class="form-group"><label class="form-label">시작일</label><input class="form-input" type="date" id="we-start"></div>
+        <div class="form-group"><label class="form-label">마감일</label><input class="form-input" type="date" id="we-end"></div>
+        <div class="form-group"><label class="form-label">상태</label>
+          <select class="form-select" id="we-status">
+            <option>시작 전</option><option>진행 중</option><option>검토 요청</option><option>수정 중</option><option>완료</option><option>보류</option>
+          </select></div>
+        <div class="form-group"><label class="form-label">실제 완료일</label><input class="form-input" type="date" id="we-actualEnd"></div>
+        <div class="form-group full"><label class="form-label">변경 사유 / 메모</label>
+          <textarea class="form-textarea" id="we-memo" rows="3" placeholder="변경 이유, 이슈, 진행 상황 등을 입력하세요"></textarea></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('workerEditModal')">취소</button>
+      <button class="btn btn-primary" onclick="submitWorkerEdit()">📨 검토 요청 제출</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 관리자 개별 검토 모달 ═══ -->
+<div class="modal-overlay" id="reviewDetailModal">
+  <div class="modal" style="width:560px;">
+    <button class="modal-close" onclick="closeModal('reviewDetailModal')">×</button>
+    <h3>🔍 변경 검토</h3>
+    <input type="hidden" id="rv-changeId">
+    <div id="rv-body" style="margin-bottom:14px;"></div>
+    <div id="rv-rejectBox" style="display:none;margin-bottom:12px;">
+      <label class="form-label">반려 코멘트 (작업자에게 전달됩니다)</label>
+      <textarea class="form-textarea" id="rv-comment" rows="3" placeholder="수정 요청 사항을 입력하세요"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('reviewDetailModal')">닫기</button>
+      <button class="btn" style="background:var(--alt);color:var(--accent);" onclick="toggleRejectBox()">✗ 반려</button>
+      <button id="rv-rejectBtn" class="btn" style="display:none;background:var(--accent);color:white;" onclick="submitReject()">반려 확정</button>
+      <button class="btn btn-green" style="color:white;" onclick="submitApprove()">✓ 승인</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Notion 연동 모달 ═══ -->
+<div class="modal-overlay" id="notionModal">
+  <div class="modal" style="width:520px;">
+    <button class="modal-close" onclick="closeModal('notionModal')">×</button>
+    <h3>🔗 Notion 연동</h3>
+    <div class="form-group" style="margin-bottom:10px;">
+      <label class="form-label">Notion Integration Token</label>
+      <input class="form-input" id="notion-token" placeholder="secret_xxxxxxxxxxxx" type="password">
+      <span style="font-size:11px;color:var(--ink3);">Notion → 설정 → API → 통합 만들기에서 발급</span>
+    </div>
+    <div class="form-group" style="margin-bottom:10px;">
+      <label class="form-label">Projects DB ID</label>
+      <input class="form-input" id="notion-proj-db" placeholder="32자리 데이터베이스 ID">
+    </div>
+    <div class="form-group" style="margin-bottom:14px;">
+      <label class="form-label">Tasks DB ID</label>
+      <input class="form-input" id="notion-task-db" placeholder="32자리 데이터베이스 ID">
+      <span style="font-size:11px;color:var(--ink3);">Notion DB URL: notion.so/.../<strong>여기32자</strong>?v=...</span>
+    </div>
+    <div id="notion-status" style="margin-bottom:14px;padding:9px 12px;background:var(--bg);border-radius:6px;font-size:12.5px;min-height:32px;"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;">
+      <button onclick="notionAction('test')" style="padding:11px 8px;border:1.5px solid var(--blue);border-radius:8px;background:var(--blue-lt);cursor:pointer;font-family:inherit;text-align:center;">
+        <div style="font-size:16px;margin-bottom:3px;">🔌</div>
+        <div style="font-size:12px;font-weight:600;color:var(--blue);">연결 테스트</div>
+      </button>
+      <button onclick="notionAction('syncToNotion')" style="padding:11px 8px;border:1.5px solid var(--green);border-radius:8px;background:var(--green-lt);cursor:pointer;font-family:inherit;text-align:center;">
+        <div style="font-size:16px;margin-bottom:3px;">⬆️</div>
+        <div style="font-size:12px;font-weight:600;color:var(--green);">Notion에 저장</div>
+        <div style="font-size:11px;color:var(--ink2);margin-top:2px;">앱 → Notion</div>
+      </button>
+      <button onclick="notionAction('syncFromNotion')" style="padding:11px 8px;border:1.5px solid var(--purple);border-radius:8px;background:var(--purple-lt);cursor:pointer;font-family:inherit;text-align:center;">
+        <div style="font-size:16px;margin-bottom:3px;">⬇️</div>
+        <div style="font-size:12px;font-weight:600;color:var(--purple);">Notion에서 불러오기</div>
+        <div style="font-size:11px;color:var(--ink2);margin-top:2px;">Notion → 앱</div>
+      </button>
+    </div>
+    <div style="background:var(--alt);border-radius:6px;padding:9px 12px;font-size:11.5px;color:var(--ink2);line-height:1.7;">
+      <strong>Notion DB 필수 컬럼:</strong><br>
+      Projects: <code>프로젝트명(제목), AppID, 시작일, 마감일, 상태, 설명</code><br>
+      Tasks: <code>공정명(제목), AppID, 프로젝트, 프로젝트ID, 카테고리, 담당자, 시작일, 마감일, 상태, 비중, 메모</code>
+    </div>
+    <div class="modal-actions" style="margin-top:12px;">
+      <button class="btn btn-secondary" onclick="saveNotionSettings()">설정 저장</button>
+      <button class="btn btn-secondary" onclick="closeModal('notionModal')">닫기</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
