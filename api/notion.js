@@ -11,16 +11,17 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  const token = process.env.NOTION_TOKEN;
-  if (!token) return res.status(500).json({ error: 'NOTION_TOKEN 환경변수 미설정' });
+  const { action, token: reqToken, projDbId: reqProjDbId, taskDbId: reqTaskDbId } = req.body || {};
+
+  // env var 우선, 없으면 요청 body의 값 사용 (모달 입력)
+  const token = process.env.NOTION_TOKEN || reqToken;
+  if (!token) return res.status(500).json({ error: 'NOTION_TOKEN 미설정 (Vercel 환경변수 또는 모달에서 토큰 입력 후 저장)' });
 
   const headers = {
     'Authorization': 'Bearer ' + token,
     'Content-Type': 'application/json',
     'Notion-Version': NOTION_VERSION,
   };
-
-  const { action } = req.body || {};
 
   try {
     if (action === 'test') {
@@ -31,14 +32,14 @@ export default async function handler(req, res) {
     }
 
     if (action === 'readProjects') {
-      const dbId = process.env.NOTION_PROJECTS_DB_ID;
+      const dbId = process.env.NOTION_PROJECTS_DB_ID || reqProjDbId;
       if (!dbId) return res.status(500).json({ error: 'NOTION_PROJECTS_DB_ID 미설정' });
       const pages = await queryAllPages(dbId, headers);
       return res.json({ ok: true, projects: pages.map(notionPageToProject) });
     }
 
     if (action === 'readTasks') {
-      const dbId = process.env.NOTION_TASKS_DB_ID;
+      const dbId = process.env.NOTION_TASKS_DB_ID || reqTaskDbId;
       if (!dbId) return res.status(500).json({ error: 'NOTION_TASKS_DB_ID 미설정' });
       const pages = await queryAllPages(dbId, headers);
       return res.json({ ok: true, tasks: pages.map(notionPageToTask) });
@@ -46,9 +47,9 @@ export default async function handler(req, res) {
 
     if (action === 'syncToNotion') {
       const { projects = [], tasks = [] } = req.body;
-      const projDbId = process.env.NOTION_PROJECTS_DB_ID;
-      const taskDbId = process.env.NOTION_TASKS_DB_ID;
-      if (!projDbId || !taskDbId) return res.status(500).json({ error: 'Notion DB ID 미설정' });
+      const projDbId = process.env.NOTION_PROJECTS_DB_ID || reqProjDbId;
+      const taskDbId = process.env.NOTION_TASKS_DB_ID || reqTaskDbId;
+      if (!projDbId || !taskDbId) return res.status(500).json({ error: 'Notion DB ID 미설정 (모달에서 입력 후 설정 저장 클릭)' });
 
       const [existingProjs, existingTasks] = await Promise.all([
         queryAllPages(projDbId, headers),
@@ -97,9 +98,9 @@ export default async function handler(req, res) {
     }
 
     if (action === 'syncFromNotion') {
-      const projDbId = process.env.NOTION_PROJECTS_DB_ID;
-      const taskDbId = process.env.NOTION_TASKS_DB_ID;
-      if (!projDbId || !taskDbId) return res.status(500).json({ error: 'Notion DB ID 미설정' });
+      const projDbId = process.env.NOTION_PROJECTS_DB_ID || reqProjDbId;
+      const taskDbId = process.env.NOTION_TASKS_DB_ID || reqTaskDbId;
+      if (!projDbId || !taskDbId) return res.status(500).json({ error: 'Notion DB ID 미설정 (모달에서 입력 후 설정 저장 클릭)' });
 
       const [projPages, taskPages] = await Promise.all([
         queryAllPages(projDbId, headers),
@@ -181,7 +182,7 @@ function projectToNotionProps(proj) {
     'AppID':     { rich_text: [{ text: { content: String(proj.id || '') } }] },
     '시작일':    proj.start ? { date: { start: proj.start } } : { date: null },
     '마감일':    proj.end   ? { date: { start: proj.end   } } : { date: null },
-    '상태':      { select: { name: proj.status || '진행 중' } },
+    '상태':      proj.status ? { select: { name: proj.status } } : { select: { name: '진행중' } },
     '설명':      { rich_text: [{ text: { content: proj.desc || '' } }] },
   };
 }
@@ -196,6 +197,6 @@ function taskToNotionProps(task) {
     '담당자':     { rich_text: [{ text: { content: task.worker || '' } }] },
     '시작일':     task.start ? { date: { start: task.start } } : { date: null },
     '마감일':     task.end   ? { date: { start: task.end   } } : { date: null },
-    '상태':       { select: { name: task.status || '시작 전' } },
+    '상태':       task.status ? { select: { name: task.status } } : { select: { name: '대기' } },
     '비중':       { number: parseFloat(task.weight) || 0 },
     '메모'
